@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
 
     std::cout << "Configured RX stream." << std::endl;
 
-    // setup and ac:tivate stream
+    // setup and activate stream
     SoapySDR::Stream *rxStream = sdr->setupStream(SOAPY_SDR_RX, SOAPY_SDR_CF32);
     sdr->activateStream(rxStream);
 
@@ -37,6 +37,7 @@ int main(int argc, char *argv[]) {
     const size_t N = 4096;
     std::vector<std::complex<float>> buff(N);
     void *buffs[] = {buff.data()};
+
     // read samples
     int flags;
     long long timeNs;
