@@ -2,9 +2,11 @@
 #include <SoapySDR/Formats.hpp>
 #include <complex>
 #include <iostream>
+#include <qt6/QtWidgets/QApplication>
+#include <qt6/QtWidgets/QMainWindow>
 #include <vector>
 
-int main() {
+int main(int argc, char *argv[]) {
   try {
     // enumerate devices
     auto results = SoapySDR::Device::enumerate();
@@ -27,7 +29,7 @@ int main() {
 
     std::cout << "Configured RX stream." << std::endl;
 
-    // setup and activate stream
+    // setup and ac:tivate stream
     SoapySDR::Stream *rxStream = sdr->setupStream(SOAPY_SDR_RX, SOAPY_SDR_CF32);
     sdr->activateStream(rxStream);
 
@@ -35,7 +37,6 @@ int main() {
     const size_t N = 4096;
     std::vector<std::complex<float>> buff(N);
     void *buffs[] = {buff.data()};
-
     // read samples
     int flags;
     long long timeNs;
@@ -51,6 +52,11 @@ int main() {
     sdr->closeStream(rxStream);
     SoapySDR::Device::unmake(sdr);
     std::cout << "Done." << std::endl;
+
+    QApplication app(argc, argv);
+    QMainWindow w;
+    w.show();
+    return app.exec();
   } catch (const std::exception &ex) {
     std::cerr << "Error: " << ex.what() << std::endl;
     return 1;

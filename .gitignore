@@ -37,6 +37,7 @@
 *.out
 *.app
 
-# debug information files
-*.dwo
+.cache/
+*.dwangd
+compile_commands.json
 build/
