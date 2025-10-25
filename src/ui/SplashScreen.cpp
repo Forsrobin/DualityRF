@@ -9,9 +9,11 @@ SplashScreen::SplashScreen(QWidget *parent) : QWidget(parent) {
       "background-color: black; color: cyan; font-family: monospace;");
 
   logo = new QLabel(this);
+
   logo->setPixmap(
-      QPixmap(":/../assets/logo.png")
+      QPixmap(":/assets/logo.png")
           .scaled(200, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+
   logo->setAlignment(Qt::AlignCenter);
 
   status = new QLabel("Scanning for SDR devices...", this);
@@ -33,7 +35,6 @@ SplashScreen::SplashScreen(QWidget *parent) : QWidget(parent) {
 void SplashScreen::checkDevices() {
   manager->pollDevices();
   if (manager->hasRTLSDR() && manager->hasHackRF()) {
-    status->setText("Both RTL-SDR and HackRF detected. Starting...");
     pollTimer->stop();
     emit bothDevicesReady();
   } else {

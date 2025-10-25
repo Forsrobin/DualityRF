@@ -10,6 +10,7 @@
 class MainWindow : public QMainWindow {
   Q_OBJECT
 public:
+  void startWaterfall();
   explicit MainWindow(QWidget *parent = nullptr);
 
 private slots:

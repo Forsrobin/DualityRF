@@ -5,13 +5,13 @@
 
 int main(int argc, char *argv[]) {
   QApplication app(argc, argv);
-
   SplashScreen splash;
   MainWindow mainWin;
 
   QObject::connect(&splash, &SplashScreen::bothDevicesReady, [&]() {
     splash.hide();
     mainWin.show();
+    mainWin.startWaterfall(); // new helper below
   });
 
   splash.show();

@@ -1,10 +1,12 @@
 
 #include "MainWindow.h"
+#include <QDir>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <qdatetime.h>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
   QWidget *central = new QWidget(this);
@@ -40,6 +42,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
   txFreq->setValue(433.95);
 
   startButton = new QPushButton("START", this);
+  running = false;
   unlockButton = new QPushButton("UNLOCK", this);
   unlockButton->setEnabled(false);
 
@@ -69,26 +72,35 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
 
   receiver = new SDRReceiver(this);
   connect(receiver, &SDRReceiver::newFFTData, waterfall,
-          &WaterfallWidget::pushData);
-
+          &WaterfallWidget::pushData, Qt::QueuedConnection);
   connect(startButton, &QPushButton::clicked, this, &MainWindow::onStart);
   connect(unlockButton, &QPushButton::clicked, this,
           &MainWindow::onStateUpdate);
 }
 
-void MainWindow::onStart() {
-  running = !running;
-  startButton->setText(running ? "STOP" : "START");
+void MainWindow::startWaterfall() {
+  // always-on waterfall
+  receiver->startStream(rxFreq->value());
+}
 
-  if (running) {
+void MainWindow::onStart() {
+  // capture toggle only
+  if (!running) {
+    running = true;
+    startButton->setText("STOP");
+    // pick a simple path
+    QDir().mkpath("captures");
+    const QString path =
+        QString("captures/%1.cf32")
+            .arg(QDateTime::currentDateTimeUtc().toString("yyyyMMdd_HHmmss"));
+    receiver->startCapture(path);
     captureStatus1->setText("Capture 1: CAPTURED");
     captureStatus2->setText("Capture 2: TRANSMITTED");
     unlockButton->setEnabled(true);
-
-    double freq = rxFreq->value();
-    receiver->start(freq);
   } else {
-    receiver->stop();
+    running = false;
+    startButton->setText("START");
+    receiver->stopCapture();
     captureStatus1->setText("Capture 1: EMPTY");
     captureStatus2->setText("Capture 2: EMPTY");
     unlockButton->setEnabled(false);
