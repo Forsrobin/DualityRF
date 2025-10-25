@@ -38,7 +38,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
   txFreq->setSuffix(" MHz");
   rxFreq->setRange(0.1, 6000);
   txFreq->setRange(0.1, 6000);
-  rxFreq->setValue(433.92);
+  rxFreq->setValue(433.81);
   txFreq->setValue(433.95);
 
   startButton = new QPushButton("START", this);

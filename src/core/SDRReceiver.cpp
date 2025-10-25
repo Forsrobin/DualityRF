@@ -151,8 +151,8 @@ private:
   std::atomic<bool> capturing{false};
   std::atomic<bool> reconfigureRequested{false};
 
-  double freqHz{433.92e6};
-  double rate{2.4e6};
+  double freqHz{433.81e6};
+  double rate{2.8e6};
 
   SoapySDR::Device *dev{nullptr};
   SoapySDR::Stream *stream{nullptr};

@@ -12,7 +12,7 @@ public:
   ~SDRReceiver();
 
   // starts the RX thread and keeps it running until app exit or stopStream()
-  void startStream(double freqMHz, double sampleRate = 2.4e6);
+  void startStream(double freqMHz, double sampleRate = 2.8e6);
   void stopStream(); // only used on app shutdown
 
 public slots:
