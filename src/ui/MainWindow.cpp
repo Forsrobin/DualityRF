@@ -1,17 +1,32 @@
 
 #include "MainWindow.h"
-#include <QDoubleSpinBox>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPushButton>
 #include <QTimer>
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
   QWidget *central = new QWidget(this);
   setCentralWidget(central);
-  setStyleSheet(
-      "background-color: black; color: cyan; font-family: monospace;");
+  setWindowTitle("Duality RF Console");
+
+  setStyleSheet(R"(
+        QWidget {
+            background-color: black;
+            color: cyan;
+            font-family: monospace;
+        }
+        QDoubleSpinBox, QPushButton {
+            background-color: #001010;
+            color: cyan;
+            border: 1px solid cyan;
+            padding: 4px;
+        }
+        QLabel {
+            color: cyan;
+        }
+    )");
 
   waterfall = new WaterfallWidget(this);
 
@@ -19,10 +34,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
   txFreq = new QDoubleSpinBox(this);
   rxFreq->setSuffix(" MHz");
   txFreq->setSuffix(" MHz");
-  rxFreq->setValue(433.92);
-  txFreq->setValue(433.95);
   rxFreq->setRange(0.1, 6000);
   txFreq->setRange(0.1, 6000);
+  rxFreq->setValue(433.92);
+  txFreq->setValue(433.95);
 
   startButton = new QPushButton("START", this);
   unlockButton = new QPushButton("UNLOCK", this);
@@ -34,11 +49,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
   QHBoxLayout *freqLayout = new QHBoxLayout;
   freqLayout->addWidget(new QLabel("TX Frequency:"));
   freqLayout->addWidget(txFreq);
+  freqLayout->addSpacing(20);
   freqLayout->addWidget(new QLabel("RX Frequency:"));
   freqLayout->addWidget(rxFreq);
 
+  QFrame *line = new QFrame;
+  line->setFrameShape(QFrame::HLine);
+  line->setFrameShadow(QFrame::Sunken);
+
   QVBoxLayout *layout = new QVBoxLayout(central);
   layout->addWidget(waterfall);
+  layout->addWidget(line);
   layout->addLayout(freqLayout);
   layout->addWidget(startButton);
   layout->addWidget(captureStatus1);
@@ -46,17 +67,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
   layout->addWidget(unlockButton);
   central->setLayout(layout);
 
+  receiver = new SDRReceiver(this);
+  connect(receiver, &SDRReceiver::newFFTData, waterfall,
+          &WaterfallWidget::pushData);
+
   connect(startButton, &QPushButton::clicked, this, &MainWindow::onStart);
+  connect(unlockButton, &QPushButton::clicked, this,
+          &MainWindow::onStateUpdate);
 }
 
 void MainWindow::onStart() {
   running = !running;
   startButton->setText(running ? "STOP" : "START");
+
   if (running) {
     captureStatus1->setText("Capture 1: CAPTURED");
     captureStatus2->setText("Capture 2: TRANSMITTED");
     unlockButton->setEnabled(true);
+
+    double freq = rxFreq->value();
+    receiver->start(freq);
   } else {
+    receiver->stop();
     captureStatus1->setText("Capture 1: EMPTY");
     captureStatus2->setText("Capture 2: EMPTY");
     unlockButton->setEnabled(false);
@@ -64,5 +96,8 @@ void MainWindow::onStart() {
 }
 
 void MainWindow::onStateUpdate() {
-  // placeholder for SDR-driven updates
+  // Example post-transmit logic
+  captureStatus1->setText("Capture 1: TRANSMITTED");
+  captureStatus2->setText("Capture 2: CAPTURED");
+  unlockButton->setEnabled(true);
 }

@@ -1,11 +1,11 @@
 
 #pragma once
+#include "../core/SDRReceiver.h"
 #include "WaterfallWidget.h"
+#include <QDoubleSpinBox>
+#include <QLabel>
 #include <QMainWindow>
-
-class QDoubleSpinBox;
-class QPushButton;
-class QLabel;
+#include <QPushButton>
 
 class MainWindow : public QMainWindow {
   Q_OBJECT
@@ -24,5 +24,7 @@ private:
   QPushButton *unlockButton;
   QLabel *captureStatus1;
   QLabel *captureStatus2;
+
+  SDRReceiver *receiver;
   bool running;
 };

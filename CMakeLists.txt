@@ -10,6 +10,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(SoapySDR REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFTW REQUIRED fftw3f)
 
 add_subdirectory(src)
 
