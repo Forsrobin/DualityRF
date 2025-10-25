@@ -1,0 +1,68 @@
+
+#include "MainWindow.h"
+#include <QDoubleSpinBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QPushButton>
+#include <QTimer>
+#include <QVBoxLayout>
+
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), running(false) {
+  QWidget *central = new QWidget(this);
+  setCentralWidget(central);
+  setStyleSheet(
+      "background-color: black; color: cyan; font-family: monospace;");
+
+  waterfall = new WaterfallWidget(this);
+
+  rxFreq = new QDoubleSpinBox(this);
+  txFreq = new QDoubleSpinBox(this);
+  rxFreq->setSuffix(" MHz");
+  txFreq->setSuffix(" MHz");
+  rxFreq->setValue(433.92);
+  txFreq->setValue(433.95);
+  rxFreq->setRange(0.1, 6000);
+  txFreq->setRange(0.1, 6000);
+
+  startButton = new QPushButton("START", this);
+  unlockButton = new QPushButton("UNLOCK", this);
+  unlockButton->setEnabled(false);
+
+  captureStatus1 = new QLabel("Capture 1: EMPTY");
+  captureStatus2 = new QLabel("Capture 2: EMPTY");
+
+  QHBoxLayout *freqLayout = new QHBoxLayout;
+  freqLayout->addWidget(new QLabel("TX Frequency:"));
+  freqLayout->addWidget(txFreq);
+  freqLayout->addWidget(new QLabel("RX Frequency:"));
+  freqLayout->addWidget(rxFreq);
+
+  QVBoxLayout *layout = new QVBoxLayout(central);
+  layout->addWidget(waterfall);
+  layout->addLayout(freqLayout);
+  layout->addWidget(startButton);
+  layout->addWidget(captureStatus1);
+  layout->addWidget(captureStatus2);
+  layout->addWidget(unlockButton);
+  central->setLayout(layout);
+
+  connect(startButton, &QPushButton::clicked, this, &MainWindow::onStart);
+}
+
+void MainWindow::onStart() {
+  running = !running;
+  startButton->setText(running ? "STOP" : "START");
+  if (running) {
+    captureStatus1->setText("Capture 1: CAPTURED");
+    captureStatus2->setText("Capture 2: TRANSMITTED");
+    unlockButton->setEnabled(true);
+  } else {
+    captureStatus1->setText("Capture 1: EMPTY");
+    captureStatus2->setText("Capture 2: EMPTY");
+    unlockButton->setEnabled(false);
+  }
+}
+
+void MainWindow::onStateUpdate() {
+  // placeholder for SDR-driven updates
+}

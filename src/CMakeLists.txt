@@ -1,10 +1,16 @@
 
-add_executable(duality_rf main.cpp)
+add_executable(duality_rf
+    main.cpp
+    ui/SplashScreen.cpp
+    ui/MainWindow.cpp
+    ui/WaterfallWidget.cpp
+    core/SDRManager.cpp
+    resources.qrc
+)
 
-target_link_libraries(duality_rf PRIVATE SoapySDR)
-target_link_libraries(duality_rf PRIVATE Qt6::Widgets)
-
+target_link_libraries(duality_rf PRIVATE SoapySDR Qt6::Widgets)
 target_include_directories(duality_rf PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
     ${SoapySDR_INCLUDE_DIRS}
 )
