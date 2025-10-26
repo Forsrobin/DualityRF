@@ -203,6 +203,11 @@ void WaterfallWidget::paintEvent(QPaintEvent *) {
   const QRect area = rect();
   p.fillRect(area, Qt::black);
 
+  // Match spectrum's horizontal plot margins to keep alignment exact
+  const int leftMargin = 52;  // keep in sync with SpectrumWidget
+  const int rightMargin = 8;
+  const QRect plotRect = area.adjusted(leftMargin, 0, -rightMargin, 0);
+
   if (!img.isNull()) {
     // assemble image in correct top->bottom order from circular buffer
     QImage view(img.width(), img.height(), QImage::Format_RGB888);
@@ -226,8 +231,8 @@ void WaterfallWidget::paintEvent(QPaintEvent *) {
     int srcW = std::max(1, int(std::round(double(view.width()) / z)));
     int srcX = (view.width() - srcW) / 2;
     QRect srcRect(srcX, 0, srcW, view.height());
-    p.drawImage(area, view, srcRect);
+    p.drawImage(plotRect, view, srcRect);
   }
 
-  drawFrequencyMarkers(p, area);
+  drawFrequencyMarkers(p, plotRect);
 }

@@ -171,19 +171,26 @@ MainWindow::MainWindow(QWidget *parent)
 
   // Sample rate combo
   sampleRateCombo = new QComboBox(this);
-  const QList<int> rates = {250000, 1024000, 1200000, 1440000, 1536000,
+  const QList<int> rates = {250000,  1024000, 1200000, 1440000, 1536000,
                             1600000, 1800000, 1920000, 2048000, 2200000,
                             2400000, 2560000, 2800000, 3000000, 3200000};
   for (int r : rates)
     sampleRateCombo->addItem(QString::number(r), r);
   // select nearest to current
-  int best = 0; int bestDiff = INT_MAX;
+  int best = 0;
+  int bestDiff = INT_MAX;
   for (int i = 0; i < sampleRateCombo->count(); ++i) {
     int r = sampleRateCombo->itemData(i).toInt();
     int diff = std::abs(r - int(sampleRateHz));
-    if (diff < bestDiff) { best = i; bestDiff = diff; }
+    if (diff < bestDiff) {
+      best = i;
+      bestDiff = diff;
+    }
   }
   sampleRateCombo->setCurrentIndex(best);
+  // Ensure contents fit inside the combobox
+  sampleRateCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+  sampleRateCombo->setMinimumContentsLength(9);
 
   QWidget *topBarWidget = new QWidget(this);
   topBarWidget->setObjectName("TopBar");
@@ -266,17 +273,13 @@ MainWindow::MainWindow(QWidget *parent)
           static_cast<void (QDoubleSpinBox::*)(double)>(
               &QDoubleSpinBox::valueChanged),
           this, [this](double txMHz) {
-            waterfall->setRxTxFrequencies(rxFreq->value() * 1e6,
-                                          txMHz * 1e6);
+            waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txMHz * 1e6);
           });
   connect(zoomSlider, &QSlider::valueChanged, this,
           &MainWindow::onZoomSliderChanged);
-  connect(zoomOutButton, &QPushButton::clicked, this,
-          &MainWindow::onZoomOut);
-  connect(zoomInButton, &QPushButton::clicked, this,
-          &MainWindow::onZoomIn);
-  connect(gainSlider, &QSlider::valueChanged, this,
-          &MainWindow::onGainChanged);
+  connect(zoomOutButton, &QPushButton::clicked, this, &MainWindow::onZoomOut);
+  connect(zoomInButton, &QPushButton::clicked, this, &MainWindow::onZoomIn);
+  connect(gainSlider, &QSlider::valueChanged, this, &MainWindow::onGainChanged);
   connect(sampleRateCombo, qOverload<int>(&QComboBox::currentIndexChanged),
           this, &MainWindow::onSampleRateChanged);
 }
@@ -328,7 +331,9 @@ void MainWindow::onRxFrequencyChanged(double frequencyMHz) {
 
 void MainWindow::onExitRequested() { close(); }
 
-void MainWindow::onZoomSliderChanged(int sliderStep) { applyZoomStep(sliderStep); }
+void MainWindow::onZoomSliderChanged(int sliderStep) {
+  applyZoomStep(sliderStep);
+}
 
 void MainWindow::onZoomOut() {
   int newStep = clampZoomStep(zoomSlider->value() - 1);
@@ -367,7 +372,9 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
   return QMainWindow::eventFilter(watched, event);
 }
 
-int MainWindow::clampZoomStep(int step) const { return std::clamp(step, kZoomMinStep, kZoomMaxStep); }
+int MainWindow::clampZoomStep(int step) const {
+  return std::clamp(step, kZoomMinStep, kZoomMaxStep);
+}
 
 void MainWindow::applyZoomStep(int step) {
   int clamped = clampZoomStep(step);
@@ -387,7 +394,8 @@ void MainWindow::onGainChanged(int sliderValue) {
                                  14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0,
                                  29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1,
                                  43.4, 43.9, 44.5, 48.0, 49.6};
-  int idx = std::clamp(sliderValue, 0, int(sizeof(gains) / sizeof(gains[0])) - 1);
+  int idx =
+      std::clamp(sliderValue, 0, int(sizeof(gains) / sizeof(gains[0])) - 1);
   double g = gains[idx];
   gainLabel->setText(QString("Gain: %1 dB").arg(g, 0, 'f', 1));
   if (receiver)

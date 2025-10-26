@@ -30,6 +30,9 @@ public slots:
       // Ensure manual mode and apply immediately
       try {
         dev->setGainMode(SOAPY_SDR_RX, 0, false);
+        // Disable any digital/tuner AGC settings some RTL stacks expose
+        try { dev->writeSetting("rtl_agc", "false"); } catch (...) {}
+        try { dev->writeSetting("tuner_agc", "false"); } catch (...) {}
         // Try specific element names commonly used by RTL-SDR
         try { dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb); } catch (...) {}
         try { dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb); } catch (...) {}
@@ -193,6 +196,8 @@ private:
     dev->setSampleRate(SOAPY_SDR_RX, 0, rate);
     dev->setFrequency(SOAPY_SDR_RX, 0, freqHz);
     dev->setGainMode(SOAPY_SDR_RX, 0, false);
+    try { dev->writeSetting("rtl_agc", "false"); } catch (...) {}
+    try { dev->writeSetting("tuner_agc", "false"); } catch (...) {}
     // Try specific and aggregate gain controls to cover driver differences
     try { dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb); } catch (...) {}
     try { dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb); } catch (...) {}
