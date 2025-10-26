@@ -18,9 +18,8 @@ public:
 
 public slots:
   void configure(double freqMHz, double sampleRate) {
-    freqHz = freqMHz * 1e6;
-    rate = sampleRate;
-    reconfigureRequested = true;
+    // Route to thread-safe immediate setter
+    configureImmediate(freqMHz, sampleRate);
   }
 
   void startWork() {
@@ -30,6 +29,8 @@ public slots:
     std::vector<std::complex<float>> buff(activeFftSize);
 
     while (running) {
+      if (QThread::currentThread()->isInterruptionRequested())
+        running = false;
       if (!dev)
         openDevice(); // lazy open
       if (!dev) {
@@ -51,7 +52,7 @@ public slots:
       int flags;
       long long timeNs;
       int ret =
-          dev->readStream(stream, buffs, activeFftSize, flags, timeNs, 50'000);
+          dev->readStream(stream, buffs, activeFftSize, flags, timeNs, 10'000);
       if (ret <= 0)
         continue;
       if (ret != activeFftSize)
@@ -85,8 +86,14 @@ public slots:
                    ret * sizeof(std::complex<float>));
       }
 
-      if (reconfigureRequested.exchange(false))
+      if (reconfigureRequested.exchange(false)) {
+        // Consume latest pending config
+        double f = pendingFreqHz.load(std::memory_order_acquire);
+        double r = pendingRate.load(std::memory_order_acquire);
+        freqHz = f;
+        rate = r;
         applyTuning();
+      }
     }
     closeDevice();
     freeFFTW();
@@ -112,6 +119,13 @@ public slots:
   void updateFftSize(int size) {
     int clamped = std::clamp(size, 512, 8192);
     requestedFftSize.store(clamped, std::memory_order_release);
+  }
+
+  // Thread-safe: may be called from any thread
+  void configureImmediate(double freqMHz, double sampleRate) {
+    pendingFreqHz.store(freqMHz * 1e6, std::memory_order_release);
+    pendingRate.store(sampleRate, std::memory_order_release);
+    reconfigureRequested.store(true, std::memory_order_release);
   }
 
 private:
@@ -173,7 +187,9 @@ private:
   std::atomic<bool> reconfigureRequested{false};
 
   double freqHz{433.81e6};
-  double rate{2.8e6};
+  double rate{2.6e6};
+  std::atomic<double> pendingFreqHz{433.81e6};
+  std::atomic<double> pendingRate{2.6e6};
 
   SoapySDR::Device *dev{nullptr};
   SoapySDR::Stream *stream{nullptr};
@@ -198,9 +214,9 @@ SDRReceiver::~SDRReceiver() { stopStream(); }
 
 void SDRReceiver::startStream(double freqMHz, double sampleRate) {
   if (streaming) {
-    QMetaObject::invokeMethod(worker, "configure", Qt::QueuedConnection,
-                              Q_ARG(double, freqMHz),
-                              Q_ARG(double, sampleRate));
+    // Update immediately without relying on the worker event loop
+    if (worker)
+      worker->configureImmediate(freqMHz, sampleRate);
     return;
   }
   streaming = true;
@@ -214,9 +230,8 @@ void SDRReceiver::startStream(double freqMHz, double sampleRate) {
   connect(thread, &QThread::started, [=]() {
     QMetaObject::invokeMethod(worker, "updateFftSize", Qt::QueuedConnection,
                               Q_ARG(int, currentFftSize));
-    QMetaObject::invokeMethod(worker, "configure", Qt::QueuedConnection,
-                              Q_ARG(double, freqMHz),
-                              Q_ARG(double, sampleRate));
+    // Seed pending configuration for the worker loop to apply
+    worker->configureImmediate(freqMHz, sampleRate);
     QMetaObject::invokeMethod(worker, "startWork", Qt::QueuedConnection);
   });
   connect(thread, &QThread::finished, worker, &QObject::deleteLater);
@@ -228,11 +243,21 @@ void SDRReceiver::stopStream() {
   if (!streaming)
     return;
   streaming = false;
-  if (worker)
+  if (thread)
+    thread->requestInterruption();
+  if (worker) {
+    QMetaObject::invokeMethod(worker, "endCapture", Qt::QueuedConnection);
     QMetaObject::invokeMethod(worker, "stopWork", Qt::QueuedConnection);
+  }
   if (thread) {
     thread->quit();
-    thread->wait();
+    // Wait for the worker to finish and the event loop to quit
+    if (!thread->wait(5000)) {
+      // Last resort to avoid dangling running thread on app shutdown
+      thread->terminate();
+      thread->wait(1000);
+    }
+    delete thread;
     thread = nullptr;
     worker = nullptr;
   }

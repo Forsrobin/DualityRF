@@ -14,6 +14,7 @@ public:
 public slots:
   void pushData(const QVector<float> &data); // 0..1 or any scale
   void setFrequencyInfo(double centerFrequencyHz, double sampleRateHz);
+  void setRxTxFrequencies(double rxHz, double txHz);
   void reset();
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -29,6 +30,8 @@ private:
   float dBmin, dBmax; // e.g. -60..0 dB window
   double centerFrequencyHz;
   double sampleRateHz;
+  double rxFrequencyHz{0.0};
+  double txFrequencyHz{0.0};
   QVector<double> markerFrequencies;
   static constexpr int markerCount = 40;
 };

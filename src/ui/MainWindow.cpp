@@ -14,7 +14,7 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), running(false), waterfallActive(false),
-      sampleRateHz(2.8e6) {
+      sampleRateHz(2.6e6) {
   setWindowTitle("Duality RF Console");
   setFixedSize(1280, 720);
 
@@ -209,6 +209,7 @@ MainWindow::MainWindow(QWidget *parent)
   receiver = new SDRReceiver(this);
   receiver->setFftSize(initialFftValue);
   waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
+  waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
 
   connect(receiver, &SDRReceiver::newFFTData, waterfall,
           &WaterfallWidget::pushData, Qt::QueuedConnection);
@@ -221,6 +222,13 @@ MainWindow::MainWindow(QWidget *parent)
           static_cast<void (QDoubleSpinBox::*)(double)>(
               &QDoubleSpinBox::valueChanged),
           this, &MainWindow::onRxFrequencyChanged);
+  connect(txFreq,
+          static_cast<void (QDoubleSpinBox::*)(double)>(
+              &QDoubleSpinBox::valueChanged),
+          this, [this](double txMHz) {
+            waterfall->setRxTxFrequencies(rxFreq->value() * 1e6,
+                                          txMHz * 1e6);
+          });
   connect(fftSizeSlider, &QSlider::valueChanged, this,
           &MainWindow::onFftSizeSliderChanged);
   connect(fftDecreaseButton, &QPushButton::clicked, this,
@@ -232,6 +240,7 @@ MainWindow::MainWindow(QWidget *parent)
 void MainWindow::startWaterfall() {
   waterfall->reset();
   waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
+  waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
   receiver->startStream(rxFreq->value(), sampleRateHz);
   waterfallActive = true;
 }
@@ -262,6 +271,7 @@ void MainWindow::onStart() {
 
 void MainWindow::onRxFrequencyChanged(double frequencyMHz) {
   waterfall->setFrequencyInfo(frequencyMHz * 1e6, sampleRateHz);
+  waterfall->setRxTxFrequencies(frequencyMHz * 1e6, txFreq->value() * 1e6);
   if (!waterfallActive)
     return;
 

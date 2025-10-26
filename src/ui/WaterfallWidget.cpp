@@ -7,10 +7,33 @@
 #include <algorithm>
 #include <cmath>
 
-static inline uchar mapCyan(float v) {
-  v = std::clamp(v, 0.0f, 1.0f); // 0..1
-  int c = int(v * 255.0f + 0.5f);
-  return uchar(std::clamp(c, 0, 255));
+static inline void mapHeat(float v, uchar &r, uchar &g, uchar &b) {
+  // 0..1: dark teal -> cyan -> yellow -> red
+  v = std::clamp(v, 0.0f, 1.0f);
+  float rF = 0.0f, gF = 0.0f, bF = 0.0f;
+
+  if (v < 0.6f) {
+    // 0.0 .. 0.6: dark teal (0,60,60) to cyan (0,255,255)
+    float t = v / 0.6f;
+    rF = 0.0f;
+    gF = 60.0f + t * (255.0f - 60.0f);
+    bF = 60.0f + t * (255.0f - 60.0f);
+  } else if (v < 0.85f) {
+    // 0.6 .. 0.85: cyan to yellow (255,255,0)
+    float t = (v - 0.6f) / 0.25f;
+    rF = t * 255.0f;
+    gF = 255.0f;
+    bF = (1.0f - t) * 255.0f;
+  } else {
+    // 0.85 .. 1.0: yellow to red (255,0,0)
+    float t = (v - 0.85f) / 0.15f;
+    rF = 255.0f;
+    gF = (1.0f - t) * 255.0f;
+    bF = 0.0f;
+  }
+  r = uchar(std::clamp(int(rF + 0.5f), 0, 255));
+  g = uchar(std::clamp(int(gF + 0.5f), 0, 255));
+  b = uchar(std::clamp(int(bF + 0.5f), 0, 255));
 }
 
 WaterfallWidget::WaterfallWidget(QWidget *parent)
@@ -66,6 +89,12 @@ void WaterfallWidget::setFrequencyInfo(double centerHz, double sampleHz) {
   update();
 }
 
+void WaterfallWidget::setRxTxFrequencies(double rxHz, double txHz) {
+  rxFrequencyHz = rxHz;
+  txFrequencyHz = txHz;
+  update();
+}
+
 void WaterfallWidget::reset() {
   img = QImage();
   nextRow = 0;
@@ -77,10 +106,11 @@ void WaterfallWidget::appendRow(const QVector<float> &row) {
   // write one horizontal row into circular buffer
   uchar *scan = img.scanLine(nextRow);
   for (int x = 0; x < row.size(); ++x) {
-    uchar c = mapCyan(row[x]);
-    scan[3 * x + 0] = 0; // R
-    scan[3 * x + 1] = c; // G
-    scan[3 * x + 2] = c; // B
+    uchar r, g, b;
+    mapHeat(row[x], r, g, b);
+    scan[3 * x + 0] = r; // R
+    scan[3 * x + 1] = g; // G
+    scan[3 * x + 2] = b; // B
   }
   nextRow = (nextRow + 1) % img.height();
   if (nextRow == 0)
@@ -141,6 +171,40 @@ void WaterfallWidget::drawFrequencyMarkers(QPainter &painter,
       painter.setPen(gridPen);
     }
   }
+
+  // RX/TX guide lines
+  auto drawGuide = [&](double freq, const QColor &color, const QString &label) {
+    if (freq <= 0.0)
+      return;
+    double ratio = (freq - startFreq) * invSpan;
+    if (ratio < 0.0 || ratio > 1.0)
+      return;
+    int x = left + static_cast<int>(std::round(ratio * static_cast<double>(width)));
+    QPen pen(color);
+    pen.setWidth(2);
+    painter.setPen(pen);
+    painter.drawLine(x, top, x, bottom);
+
+    QString text = label + QString(": ") + QString::number(freq / 1e6, 'f', 3) + " MHz";
+    int tw = metrics.horizontalAdvance(text);
+    int th = metrics.height();
+    QRect tr(x - tw / 2, bottom - th - 4, tw, th);
+
+    painter.save();
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0, 0, 0, 180));
+    painter.drawRect(tr.adjusted(-4, -2, 4, 2));
+    painter.restore();
+
+    painter.save();
+    painter.setPen(color);
+    painter.drawText(tr, Qt::AlignCenter, text);
+    painter.restore();
+    painter.setPen(gridPen);
+  };
+
+  drawGuide(rxFrequencyHz, QColor(255, 255, 0), QStringLiteral("RX"));
+  drawGuide(txFrequencyHz, QColor(255, 80, 80), QStringLiteral("TX"));
 
   painter.restore();
 }
