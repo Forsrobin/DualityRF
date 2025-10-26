@@ -102,6 +102,24 @@ void WaterfallWidget::reset() {
   update();
 }
 
+double WaterfallWidget::zoomFactor() const {
+  if (zoomStep <= 0)
+    return 1.0;
+  double f = 1.0;
+  for (int i = 0; i < zoomStep; ++i)
+    f *= 2.0;
+  return f;
+}
+
+void WaterfallWidget::setZoomStep(int step) {
+  if (step < 0)
+    step = 0;
+  if (step != zoomStep) {
+    zoomStep = step;
+    update();
+  }
+}
+
 void WaterfallWidget::appendRow(const QVector<float> &row) {
   // write one horizontal row into circular buffer
   uchar *scan = img.scanLine(nextRow);
@@ -128,8 +146,9 @@ void WaterfallWidget::drawFrequencyMarkers(QPainter &painter,
   gridPen.setWidth(1);
   painter.setPen(gridPen);
 
-  const double startFreq = centerFrequencyHz - sampleRateHz / 2.0;
-  const double invSpan = 1.0 / sampleRateHz;
+  const double span = sampleRateHz / zoomFactor();
+  const double startFreq = centerFrequencyHz - span / 2.0;
+  const double invSpan = 1.0 / span;
   const int left = targetRect.left();
   const int width = targetRect.width();
   const int top = targetRect.top();
@@ -231,8 +250,12 @@ void WaterfallWidget::paintEvent(QPaintEvent *) {
                nextRow * img.bytesPerLine());
     }
 
-    // scale smoothly to widget size
-    p.drawImage(area, view);
+    // apply horizontal zoom by cropping central ROI and scaling to widget
+    double z = zoomFactor();
+    int srcW = std::max(1, int(std::round(double(view.width()) / z)));
+    int srcX = (view.width() - srcW) / 2;
+    QRect srcRect(srcX, 0, srcW, view.height());
+    p.drawImage(area, view, srcRect);
   }
 
   drawFrequencyMarkers(p, area);

@@ -9,6 +9,7 @@
 #include <complex>
 #include <fftw3.h>
 #include <vector>
+#include <math.h>
 
 class SDRReceiver::Worker : public QObject {
   Q_OBJECT
@@ -27,6 +28,17 @@ public slots:
     activeFftSize =
         std::clamp(requestedFftSize.load(std::memory_order_acquire), 512, 8192);
     std::vector<std::complex<float>> buff(activeFftSize);
+    std::vector<float> window(activeFftSize, 1.0f);
+    std::vector<float> prev(activeFftSize, 0.0f);
+    auto buildHann = [&](int N) {
+      window.resize(N);
+      for (int i = 0; i < N; ++i) {
+        window[i] = 0.5f * (1.0f - std::cos(2.0f * float(M_PI) * float(i) / float(N - 1)));
+      }
+      prev.assign(N, 0.0f);
+    };
+    buildHann(activeFftSize);
+    const float alpha = 0.4f; // smoothing factor, lower = more smoothing
 
     while (running) {
       if (QThread::currentThread()->isInterruptionRequested())
@@ -44,6 +56,7 @@ public slots:
         activeFftSize = desired;
         buff.assign(activeFftSize, std::complex<float>{});
         ensureFFTW(activeFftSize);
+        buildHann(activeFftSize);
       }
 
       void *buffs[] = {buff.data()};
@@ -61,24 +74,27 @@ public slots:
       // FFT
       ensureFFTW(activeFftSize);
       for (int i = 0; i < activeFftSize; ++i) {
-        in[i][0] = buff[i].real();
-        in[i][1] = buff[i].imag();
+        float w = window[i];
+        in[i][0] = buff[i].real() * w;
+        in[i][1] = buff[i].imag() * w;
       }
       fftwf_execute(plan);
 
-      QVector<float> mags(activeFftSize);
+      QVector<float> magsNorm(activeFftSize);
       float maxv = 1e-9f;
       for (int i = 0; i < activeFftSize; ++i) {
         float re = out[i][0], im = out[i][1];
         float m = std::sqrt(re * re + im * im);
-        if (m > maxv)
-          maxv = m;
-        mags[i] = m;
+        float s = alpha * m + (1.0f - alpha) * prev[i];
+        prev[i] = s;
+        if (s > maxv)
+          maxv = s;
+        magsNorm[i] = s;
       }
       float inv = 1.0f / maxv;
       for (int i = 0; i < activeFftSize; ++i)
-        mags[i] *= inv;
-      emit newFFTData(mags);
+        magsNorm[i] *= inv;
+      emit newFFTData(magsNorm);
 
       // optional capture
       if (capturing && file.isOpen()) {

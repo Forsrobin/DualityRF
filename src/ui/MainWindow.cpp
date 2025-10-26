@@ -140,23 +140,23 @@ MainWindow::MainWindow(QWidget *parent)
   captureStatus1 = new QLabel("Capture 1: EMPTY", this);
   captureStatus2 = new QLabel("Capture 2: EMPTY", this);
 
-  fftDecreaseButton = new QPushButton("-", this);
-  fftIncreaseButton = new QPushButton("+", this);
-  fftDecreaseButton->setFixedWidth(36);
-  fftIncreaseButton->setFixedWidth(36);
+  zoomOutButton = new QPushButton("-", this);
+  zoomInButton = new QPushButton("+", this);
+  zoomOutButton->setFixedWidth(36);
+  zoomInButton->setFixedWidth(36);
 
-  const int initialFftValue = 4096;
-  const int initialStep = clampFftStep((initialFftValue - kFftMin) / kFftStep);
+  const int initialZoomStep = kZoomMinStep;
 
-  fftSizeSlider = new QSlider(Qt::Horizontal, this);
-  fftSizeSlider->setRange(0, kFftSteps);
-  fftSizeSlider->setSingleStep(1);
-  fftSizeSlider->setPageStep(1);
-  fftSizeSlider->setValue(initialStep);
-  fftSizeSlider->setFocusPolicy(Qt::NoFocus);
-  fftSizeSlider->installEventFilter(this);
+  zoomSlider = new QSlider(Qt::Horizontal, this);
+  zoomSlider->setRange(kZoomMinStep, kZoomMaxStep);
+  zoomSlider->setSingleStep(1);
+  zoomSlider->setPageStep(1);
+  zoomSlider->setValue(initialZoomStep);
+  zoomSlider->setFocusPolicy(Qt::NoFocus);
+  zoomSlider->installEventFilter(this);
 
-  fftSizeLabel = new QLabel(QString("FFT: %1").arg(initialFftValue), this);
+  zoomLabel = new QLabel(QString("Zoom: %1x").arg(1 << initialZoomStep), this);
+  waterfall->setZoomStep(initialZoomStep);
 
   QWidget *topBarWidget = new QWidget(this);
   topBarWidget->setObjectName("TopBar");
@@ -173,12 +173,12 @@ MainWindow::MainWindow(QWidget *parent)
 
   QHBoxLayout *fftLayout = new QHBoxLayout;
   fftLayout->setSpacing(12);
-  QLabel *fftDescriptor = new QLabel("Waterfall Resolution:", this);
+  QLabel *fftDescriptor = new QLabel("Zoom:", this);
   fftLayout->addWidget(fftDescriptor);
-  fftLayout->addWidget(fftDecreaseButton);
-  fftLayout->addWidget(fftSizeSlider, 1);
-  fftLayout->addWidget(fftIncreaseButton);
-  fftLayout->addWidget(fftSizeLabel);
+  fftLayout->addWidget(zoomOutButton);
+  fftLayout->addWidget(zoomSlider, 1);
+  fftLayout->addWidget(zoomInButton);
+  fftLayout->addWidget(zoomLabel);
 
   QHBoxLayout *freqLayout = new QHBoxLayout;
   freqLayout->setSpacing(12);
@@ -207,7 +207,6 @@ MainWindow::MainWindow(QWidget *parent)
   central->setLayout(layout);
 
   receiver = new SDRReceiver(this);
-  receiver->setFftSize(initialFftValue);
   waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
 
@@ -229,12 +228,12 @@ MainWindow::MainWindow(QWidget *parent)
             waterfall->setRxTxFrequencies(rxFreq->value() * 1e6,
                                           txMHz * 1e6);
           });
-  connect(fftSizeSlider, &QSlider::valueChanged, this,
-          &MainWindow::onFftSizeSliderChanged);
-  connect(fftDecreaseButton, &QPushButton::clicked, this,
-          &MainWindow::onDecreaseFft);
-  connect(fftIncreaseButton, &QPushButton::clicked, this,
-          &MainWindow::onIncreaseFft);
+  connect(zoomSlider, &QSlider::valueChanged, this,
+          &MainWindow::onZoomSliderChanged);
+  connect(zoomOutButton, &QPushButton::clicked, this,
+          &MainWindow::onZoomOut);
+  connect(zoomInButton, &QPushButton::clicked, this,
+          &MainWindow::onZoomIn);
 }
 
 void MainWindow::startWaterfall() {
@@ -281,20 +280,18 @@ void MainWindow::onRxFrequencyChanged(double frequencyMHz) {
 
 void MainWindow::onExitRequested() { close(); }
 
-void MainWindow::onFftSizeSliderChanged(int sliderStep) {
-  applyFftSize(fftStepToValue(sliderStep));
+void MainWindow::onZoomSliderChanged(int sliderStep) { applyZoomStep(sliderStep); }
+
+void MainWindow::onZoomOut() {
+  int newStep = clampZoomStep(zoomSlider->value() - 1);
+  if (newStep != zoomSlider->value())
+    zoomSlider->setValue(newStep);
 }
 
-void MainWindow::onDecreaseFft() {
-  int newStep = clampFftStep(fftSizeSlider->value() - 1);
-  if (newStep != fftSizeSlider->value())
-    fftSizeSlider->setValue(newStep);
-}
-
-void MainWindow::onIncreaseFft() {
-  int newStep = clampFftStep(fftSizeSlider->value() + 1);
-  if (newStep != fftSizeSlider->value())
-    fftSizeSlider->setValue(newStep);
+void MainWindow::onZoomIn() {
+  int newStep = clampZoomStep(zoomSlider->value() + 1);
+  if (newStep != zoomSlider->value())
+    zoomSlider->setValue(newStep);
 }
 
 void MainWindow::onStateUpdate() {
@@ -305,7 +302,7 @@ void MainWindow::onStateUpdate() {
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
-  if (watched == fftSizeSlider) {
+  if (watched == zoomSlider) {
     switch (event->type()) {
     case QEvent::MouseButtonPress:
     case QEvent::MouseButtonDblClick:
@@ -322,18 +319,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
   return QMainWindow::eventFilter(watched, event);
 }
 
-int MainWindow::fftStepToValue(int step) const {
-  return kFftMin + step * kFftStep;
-}
+int MainWindow::clampZoomStep(int step) const { return std::clamp(step, kZoomMinStep, kZoomMaxStep); }
 
-int MainWindow::clampFftStep(int step) const {
-  return std::clamp(step, 0, kFftSteps);
-}
-
-void MainWindow::applyFftSize(int fftValue) {
-  fftSizeLabel->setText(QString("FFT: %1").arg(fftValue));
-  if (receiver)
-    receiver->setFftSize(fftValue);
+void MainWindow::applyZoomStep(int step) {
+  int clamped = clampZoomStep(step);
+  int factor = 1 << clamped;
+  zoomLabel->setText(QString("Zoom: %1x").arg(factor));
+  waterfall->setZoomStep(clamped);
+  // Update frequency markers to reflect visible span
+  waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   if (waterfallActive)
     waterfall->reset();
 }

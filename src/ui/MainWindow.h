@@ -25,21 +25,16 @@ private slots:
   void onStateUpdate();
   void onRxFrequencyChanged(double frequencyMHz);
   void onExitRequested();
-  void onFftSizeSliderChanged(int sliderStep);
-  void onDecreaseFft();
-  void onIncreaseFft();
+  void onZoomSliderChanged(int sliderStep);
+  void onZoomOut();
+  void onZoomIn();
 
 private:
   bool eventFilter(QObject *watched, QEvent *event) override;
-  int fftStepToValue(int step) const;
-  int clampFftStep(int step) const;
-  void applyFftSize(int fftValue);
-
-  static constexpr int kFftMin = 512;
-  static constexpr int kFftMax = 8192;
-  static constexpr int kFftStep = 512;
-  static constexpr int kFftSteps =
-      (kFftMax - kFftMin) / kFftStep; // zero-based slider range
+  int clampZoomStep(int step) const;
+  void applyZoomStep(int step);
+  static constexpr int kZoomMinStep = 0; // 1x
+  static constexpr int kZoomMaxStep = 4; // 16x
 
   WaterfallWidget *waterfall;
   QDoubleSpinBox *rxFreq;
@@ -47,10 +42,10 @@ private:
   QPushButton *startButton;
   QPushButton *unlockButton;
   QPushButton *exitButton;
-  QPushButton *fftDecreaseButton;
-  QPushButton *fftIncreaseButton;
-  QSlider *fftSizeSlider;
-  QLabel *fftSizeLabel;
+  QPushButton *zoomOutButton;
+  QPushButton *zoomInButton;
+  QSlider *zoomSlider;
+  QLabel *zoomLabel;
   QLabel *captureStatus1;
   QLabel *captureStatus2;
 
