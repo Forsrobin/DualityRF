@@ -3,6 +3,7 @@
 #include <QMetaType>
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Formats.h>
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <complex>
@@ -24,6 +25,10 @@ public slots:
 
   void startWork() {
     running = true;
+    activeFftSize =
+        std::clamp(requestedFftSize.load(std::memory_order_acquire), 512, 8192);
+    std::vector<std::complex<float>> buff(activeFftSize);
+
     while (running) {
       if (!dev)
         openDevice(); // lazy open
@@ -32,28 +37,37 @@ public slots:
         continue;
       }
 
-      const int N = 1024;
-      std::vector<std::complex<float>> buff(N);
+      int desired =
+          std::clamp(requestedFftSize.load(std::memory_order_acquire), 512, 8192);
+      if (desired != activeFftSize) {
+        activeFftSize = desired;
+        buff.assign(activeFftSize, std::complex<float>{});
+        ensureFFTW(activeFftSize);
+      }
+
       void *buffs[] = {buff.data()};
 
       // small timeout to stay responsive on stop/capture toggles
       int flags;
       long long timeNs;
-      int ret = dev->readStream(stream, buffs, N, flags, timeNs, 50'000);
+      int ret =
+          dev->readStream(stream, buffs, activeFftSize, flags, timeNs, 50'000);
       if (ret <= 0)
+        continue;
+      if (ret != activeFftSize)
         continue;
 
       // FFT
-      ensureFFTW(N);
-      for (int i = 0; i < N; ++i) {
+      ensureFFTW(activeFftSize);
+      for (int i = 0; i < activeFftSize; ++i) {
         in[i][0] = buff[i].real();
         in[i][1] = buff[i].imag();
       }
       fftwf_execute(plan);
 
-      QVector<float> mags(N);
+      QVector<float> mags(activeFftSize);
       float maxv = 1e-9f;
-      for (int i = 0; i < N; ++i) {
+      for (int i = 0; i < activeFftSize; ++i) {
         float re = out[i][0], im = out[i][1];
         float m = std::sqrt(re * re + im * im);
         if (m > maxv)
@@ -61,7 +75,7 @@ public slots:
         mags[i] = m;
       }
       float inv = 1.0f / maxv;
-      for (int i = 0; i < N; ++i)
+      for (int i = 0; i < activeFftSize; ++i)
         mags[i] *= inv;
       emit newFFTData(mags);
 
@@ -84,13 +98,20 @@ public slots:
     if (file.isOpen())
       file.close();
     file.setFileName(path);
-    file.open(QIODevice::WriteOnly);
+    if (!file.open(QIODevice::WriteOnly)) {
+      capturing = false;
+      return;
+    }
     capturing = true;
   }
   void endCapture() {
     capturing = false;
     if (file.isOpen())
       file.close();
+  }
+  void updateFftSize(int size) {
+    int clamped = std::clamp(size, 512, 8192);
+    requestedFftSize.store(clamped, std::memory_order_release);
   }
 
 private:
@@ -161,6 +182,8 @@ private:
   int sz{0};
   fftwf_complex *in{nullptr}, *out{nullptr};
   fftwf_plan plan{nullptr};
+  std::atomic<int> requestedFftSize{4096};
+  int activeFftSize{4096};
 
   QFile file;
 
@@ -189,6 +212,8 @@ void SDRReceiver::startStream(double freqMHz, double sampleRate) {
   connect(worker, &Worker::newFFTData, this, &SDRReceiver::newFFTData,
           Qt::QueuedConnection);
   connect(thread, &QThread::started, [=]() {
+    QMetaObject::invokeMethod(worker, "updateFftSize", Qt::QueuedConnection,
+                              Q_ARG(int, currentFftSize));
     QMetaObject::invokeMethod(worker, "configure", Qt::QueuedConnection,
                               Q_ARG(double, freqMHz),
                               Q_ARG(double, sampleRate));
@@ -210,6 +235,15 @@ void SDRReceiver::stopStream() {
     thread->wait();
     thread = nullptr;
     worker = nullptr;
+  }
+}
+
+void SDRReceiver::setFftSize(int size) {
+  int clamped = std::clamp(size, 512, 8192);
+  currentFftSize = clamped;
+  if (worker) {
+    QMetaObject::invokeMethod(worker, "updateFftSize", Qt::QueuedConnection,
+                              Q_ARG(int, clamped));
   }
 }
 

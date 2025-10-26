@@ -14,6 +14,7 @@ public:
   // starts the RX thread and keeps it running until app exit or stopStream()
   void startStream(double freqMHz, double sampleRate = 2.8e6);
   void stopStream(); // only used on app shutdown
+  void setFftSize(int size);
 
 public slots:
   // toggles capture without stopping the stream
@@ -28,4 +29,5 @@ private:
   QThread *thread{nullptr};
   Worker *worker{nullptr};
   bool streaming{false};
+  int currentFftSize{4096};
 };
