@@ -16,7 +16,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), running(false), waterfallActive(false),
       sampleRateHz(2.6e6) {
   setWindowTitle("Duality RF Console");
-  setFixedSize(1280, 720);
+  setFixedSize(1280, 800);
 
   QWidget *central = new QWidget(this);
   setCentralWidget(central);
@@ -119,6 +119,7 @@ MainWindow::MainWindow(QWidget *parent)
         }
     )");
 
+  spectrum = new SpectrumWidget(this);
   waterfall = new WaterfallWidget(this);
 
   rxFreq = new QDoubleSpinBox(this);
@@ -157,6 +158,32 @@ MainWindow::MainWindow(QWidget *parent)
 
   zoomLabel = new QLabel(QString("Zoom: %1x").arg(1 << initialZoomStep), this);
   waterfall->setZoomStep(initialZoomStep);
+  spectrum->setZoomStep(initialZoomStep);
+
+  // Gain slider (maps to known RTL-SDR gains)
+  gainSlider = new QSlider(Qt::Horizontal, this);
+  gainSlider->setRange(0, 28); // 29 supported gains
+  gainSlider->setSingleStep(1);
+  gainSlider->setPageStep(1);
+  gainSlider->setValue(22); // ~40.2 dB default
+  gainSlider->setFocusPolicy(Qt::NoFocus);
+  gainLabel = new QLabel("Gain: 40.2 dB", this);
+
+  // Sample rate combo
+  sampleRateCombo = new QComboBox(this);
+  const QList<int> rates = {250000, 1024000, 1200000, 1440000, 1536000,
+                            1600000, 1800000, 1920000, 2048000, 2200000,
+                            2400000, 2560000, 2800000, 3000000, 3200000};
+  for (int r : rates)
+    sampleRateCombo->addItem(QString::number(r), r);
+  // select nearest to current
+  int best = 0; int bestDiff = INT_MAX;
+  for (int i = 0; i < sampleRateCombo->count(); ++i) {
+    int r = sampleRateCombo->itemData(i).toInt();
+    int diff = std::abs(r - int(sampleRateHz));
+    if (diff < bestDiff) { best = i; bestDiff = diff; }
+  }
+  sampleRateCombo->setCurrentIndex(best);
 
   QWidget *topBarWidget = new QWidget(this);
   topBarWidget->setObjectName("TopBar");
@@ -196,9 +223,20 @@ MainWindow::MainWindow(QWidget *parent)
   layout->setContentsMargins(12, 12, 12, 12);
   layout->setSpacing(12);
   layout->addWidget(topBarWidget);
+  layout->addWidget(spectrum);
   layout->addWidget(waterfall, 1);
   layout->addWidget(line);
   layout->addLayout(fftLayout);
+  // Gain & sample rate controls
+  QHBoxLayout *gainRateLayout = new QHBoxLayout;
+  gainRateLayout->setSpacing(12);
+  gainRateLayout->addWidget(new QLabel("Sample Rate:", this));
+  gainRateLayout->addWidget(sampleRateCombo);
+  gainRateLayout->addSpacing(20);
+  gainRateLayout->addWidget(new QLabel("Gain:", this));
+  gainRateLayout->addWidget(gainSlider, 1);
+  gainRateLayout->addWidget(gainLabel);
+  layout->addLayout(gainRateLayout);
   layout->addLayout(freqLayout);
   layout->addWidget(startButton);
   layout->addWidget(captureStatus1);
@@ -208,10 +246,13 @@ MainWindow::MainWindow(QWidget *parent)
 
   receiver = new SDRReceiver(this);
   waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
+  spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
 
   connect(receiver, &SDRReceiver::newFFTData, waterfall,
           &WaterfallWidget::pushData, Qt::QueuedConnection);
+  connect(receiver, &SDRReceiver::newFFTData, spectrum,
+          &SpectrumWidget::pushData, Qt::QueuedConnection);
   connect(startButton, &QPushButton::clicked, this, &MainWindow::onStart);
   connect(unlockButton, &QPushButton::clicked, this,
           &MainWindow::onStateUpdate);
@@ -234,12 +275,17 @@ MainWindow::MainWindow(QWidget *parent)
           &MainWindow::onZoomOut);
   connect(zoomInButton, &QPushButton::clicked, this,
           &MainWindow::onZoomIn);
+  connect(gainSlider, &QSlider::valueChanged, this,
+          &MainWindow::onGainChanged);
+  connect(sampleRateCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+          this, &MainWindow::onSampleRateChanged);
 }
 
 void MainWindow::startWaterfall() {
   waterfall->reset();
   waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
+  spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   receiver->startStream(rxFreq->value(), sampleRateHz);
   waterfallActive = true;
 }
@@ -271,10 +317,12 @@ void MainWindow::onStart() {
 void MainWindow::onRxFrequencyChanged(double frequencyMHz) {
   waterfall->setFrequencyInfo(frequencyMHz * 1e6, sampleRateHz);
   waterfall->setRxTxFrequencies(frequencyMHz * 1e6, txFreq->value() * 1e6);
+  spectrum->setFrequencyInfo(frequencyMHz * 1e6, sampleRateHz);
   if (!waterfallActive)
     return;
 
   waterfall->reset();
+  spectrum->resetPeaks();
   receiver->startStream(frequencyMHz, sampleRateHz);
 }
 
@@ -326,10 +374,38 @@ void MainWindow::applyZoomStep(int step) {
   int factor = 1 << clamped;
   zoomLabel->setText(QString("Zoom: %1x").arg(factor));
   waterfall->setZoomStep(clamped);
+  spectrum->setZoomStep(clamped);
   // Update frequency markers to reflect visible span
   waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
+  spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   if (waterfallActive)
     waterfall->reset();
+}
+
+void MainWindow::onGainChanged(int sliderValue) {
+  static const double gains[] = {0.0,  0.9,  1.4,  2.7,  3.7,  7.7,  8.7,  12.5,
+                                 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0,
+                                 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1,
+                                 43.4, 43.9, 44.5, 48.0, 49.6};
+  int idx = std::clamp(sliderValue, 0, int(sizeof(gains) / sizeof(gains[0])) - 1);
+  double g = gains[idx];
+  gainLabel->setText(QString("Gain: %1 dB").arg(g, 0, 'f', 1));
+  if (receiver)
+    receiver->setGainDb(g);
+}
+
+void MainWindow::onSampleRateChanged(int index) {
+  int sr = sampleRateCombo->itemData(index).toInt();
+  if (sr <= 0)
+    return;
+  sampleRateHz = sr;
+  spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
+  waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
+  if (waterfallActive) {
+    waterfall->reset();
+    spectrum->resetPeaks();
+    receiver->startStream(rxFreq->value(), sampleRateHz);
+  }
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {

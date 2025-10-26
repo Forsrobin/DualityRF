@@ -2,12 +2,14 @@
 #pragma once
 #include "../core/SDRReceiver.h"
 #include "WaterfallWidget.h"
+#include "SpectrumWidget.h"
 #include <QDoubleSpinBox>
 #include <QEvent>
 #include <QLabel>
 #include <QMainWindow>
 #include <QPushButton>
 #include <QSlider>
+#include <QComboBox>
 
 class QCloseEvent;
 
@@ -28,6 +30,8 @@ private slots:
   void onZoomSliderChanged(int sliderStep);
   void onZoomOut();
   void onZoomIn();
+  void onGainChanged(int sliderValue);
+  void onSampleRateChanged(int index);
 
 private:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -46,6 +50,10 @@ private:
   QPushButton *zoomInButton;
   QSlider *zoomSlider;
   QLabel *zoomLabel;
+  QSlider *gainSlider;
+  QLabel *gainLabel;
+  QComboBox *sampleRateCombo;
+  SpectrumWidget *spectrum;
   QLabel *captureStatus1;
   QLabel *captureStatus2;
 

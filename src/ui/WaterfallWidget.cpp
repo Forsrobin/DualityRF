@@ -37,8 +37,8 @@ static inline void mapHeat(float v, uchar &r, uchar &g, uchar &b) {
 }
 
 WaterfallWidget::WaterfallWidget(QWidget *parent)
-    : QWidget(parent), maxRows(600), nextRow(0), filled(false), dBmin(-60.0f),
-      dBmax(0.0f), centerFrequencyHz(0.0), sampleRateHz(0.0) {
+    : QWidget(parent), maxRows(600), nextRow(0), filled(false), dBmin(-110.0f),
+      dBmax(-10.0f), centerFrequencyHz(0.0), sampleRateHz(0.0) {
   setMinimumHeight(200);
   setStyleSheet("background-color: black;");
 }
@@ -154,42 +154,13 @@ void WaterfallWidget::drawFrequencyMarkers(QPainter &painter,
   const int top = targetRect.top();
   const int bottom = targetRect.bottom();
 
+  // Intentionally skip frequency grid/labels on the waterfall to avoid
+  // duplication with the spectrum widget. Only draw RX/TX and capture span.
+
   QFont labelFont = painter.font();
   labelFont.setPointSizeF(labelFont.pointSizeF() * 0.9);
   painter.setFont(labelFont);
   QFontMetrics metrics(labelFont);
-
-  for (int i = 0; i < markerFrequencies.size(); ++i) {
-    double freq = markerFrequencies.at(i);
-    double ratio = (freq - startFreq) * invSpan;
-    if (ratio < 0.0 || ratio > 1.0)
-      continue;
-
-    int x = left + static_cast<int>(std::round(ratio * static_cast<double>(width)));
-    painter.drawLine(x, top, x, bottom);
-
-    if (i % 5 == 0) {
-      QString text =
-          QString::number(freq / 1e6, 'f', 3) + QStringLiteral(" MHz");
-      int textWidth = metrics.horizontalAdvance(text);
-      int textHeight = metrics.height();
-      QRect textRect(x - textWidth / 2, top + 4, textWidth, textHeight);
-
-      painter.save();
-      painter.setPen(Qt::NoPen);
-      painter.setBrush(QColor(0, 0, 0, 180));
-      QRect bgRect = textRect.adjusted(-4, -2, 4, 2);
-      painter.drawRect(bgRect);
-      painter.restore();
-
-      painter.save();
-      painter.setPen(QColor(0, 255, 255));
-      painter.drawText(textRect, Qt::AlignCenter, text);
-      painter.restore();
-
-      painter.setPen(gridPen);
-    }
-  }
 
   // RX/TX guide lines
   auto drawGuide = [&](double freq, const QColor &color, const QString &label) {

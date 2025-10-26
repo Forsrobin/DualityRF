@@ -15,6 +15,8 @@ public:
   void startStream(double freqMHz, double sampleRate = 2.6e6);
   void stopStream(); // only used on app shutdown
   void setFftSize(int size);
+  void setGainDb(double gainDb);
+  void setSampleRate(double sampleRate);
 
 public slots:
   // toggles capture without stopping the stream
@@ -30,4 +32,7 @@ private:
   Worker *worker{nullptr};
   bool streaming{false};
   int currentFftSize{4096};
+  double currentGainDb{40.0};
+  double currentSampleRate{2.6e6};
+  double lastFreqMHz{433.81};
 };

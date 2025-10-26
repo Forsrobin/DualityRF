@@ -22,6 +22,24 @@ public slots:
     // Route to thread-safe immediate setter
     configureImmediate(freqMHz, sampleRate);
   }
+  void setGain(double gDb) {
+    // Called in worker thread via queued connection
+    pendingGain.store(gDb, std::memory_order_release);
+    gainDb = gDb;
+    if (dev) {
+      // Ensure manual mode and apply immediately
+      try {
+        dev->setGainMode(SOAPY_SDR_RX, 0, false);
+        // Try specific element names commonly used by RTL-SDR
+        try { dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb); } catch (...) {}
+        try { dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb); } catch (...) {}
+        // Fallback to aggregate
+        try { dev->setGain(SOAPY_SDR_RX, 0, gainDb); } catch (...) {}
+      } catch (...) {
+      }
+    }
+    reconfigureRequested.store(true, std::memory_order_release);
+  }
 
   void startWork() {
     running = true;
@@ -29,13 +47,18 @@ public slots:
         std::clamp(requestedFftSize.load(std::memory_order_acquire), 512, 8192);
     std::vector<std::complex<float>> buff(activeFftSize);
     std::vector<float> window(activeFftSize, 1.0f);
-    std::vector<float> prev(activeFftSize, 0.0f);
+    std::vector<float> prevAmp(activeFftSize, 0.0f);
+    float coherentGain = 1.0f; // sum(w)/N for amplitude normalization
     auto buildHann = [&](int N) {
       window.resize(N);
+      double sumW = 0.0;
       for (int i = 0; i < N; ++i) {
-        window[i] = 0.5f * (1.0f - std::cos(2.0f * float(M_PI) * float(i) / float(N - 1)));
+        float w = 0.5f * (1.0f - std::cos(2.0f * float(M_PI) * float(i) / float(N - 1)));
+        window[i] = w;
+        sumW += w;
       }
-      prev.assign(N, 0.0f);
+      coherentGain = float(sumW / double(N));
+      prevAmp.assign(N, 0.0f);
     };
     buildHann(activeFftSize);
     const float alpha = 0.4f; // smoothing factor, lower = more smoothing
@@ -80,21 +103,25 @@ public slots:
       }
       fftwf_execute(plan);
 
-      QVector<float> magsNorm(activeFftSize);
-      float maxv = 1e-9f;
+      QVector<float> amps(activeFftSize);
+      const float invN = 1.0f / float(activeFftSize);
+      const float ampScale = invN / std::max(coherentGain, 1e-9f); // normalize FFT and window coherent gain
       for (int i = 0; i < activeFftSize; ++i) {
-        float re = out[i][0], im = out[i][1];
-        float m = std::sqrt(re * re + im * im);
-        float s = alpha * m + (1.0f - alpha) * prev[i];
-        prev[i] = s;
-        if (s > maxv)
-          maxv = s;
-        magsNorm[i] = s;
+        float re = out[i][0] * ampScale;
+        float im = out[i][1] * ampScale;
+        float a = std::sqrt(re * re + im * im); // amplitude relative to full-scale
+        // temporal smoothing in amplitude domain
+        float s = alpha * a + (1.0f - alpha) * prevAmp[i];
+        prevAmp[i] = s;
+        // clamp to [0,1.5] to avoid crazy spikes from driver; UI will dB-map
+        amps[i] = std::min(s, 1.5f);
       }
-      float inv = 1.0f / maxv;
+      // FFT shift: arrange bins as [-Fs/2 .. +Fs/2)
+      QVector<float> ampsShift(activeFftSize);
+      int half = activeFftSize / 2;
       for (int i = 0; i < activeFftSize; ++i)
-        magsNorm[i] *= inv;
-      emit newFFTData(magsNorm);
+        ampsShift[i] = amps[(i + half) % activeFftSize];
+      emit newFFTData(ampsShift);
 
       // optional capture
       if (capturing && file.isOpen()) {
@@ -106,8 +133,10 @@ public slots:
         // Consume latest pending config
         double f = pendingFreqHz.load(std::memory_order_acquire);
         double r = pendingRate.load(std::memory_order_acquire);
+        double g = pendingGain.load(std::memory_order_acquire);
         freqHz = f;
         rate = r;
+        gainDb = g;
         applyTuning();
       }
     }
@@ -163,7 +192,11 @@ private:
       return;
     dev->setSampleRate(SOAPY_SDR_RX, 0, rate);
     dev->setFrequency(SOAPY_SDR_RX, 0, freqHz);
-    dev->setGain(SOAPY_SDR_RX, 0, 40);
+    dev->setGainMode(SOAPY_SDR_RX, 0, false);
+    // Try specific and aggregate gain controls to cover driver differences
+    try { dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb); } catch (...) {}
+    try { dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb); } catch (...) {}
+    try { dev->setGain(SOAPY_SDR_RX, 0, gainDb); } catch (...) {}
   }
   void closeDevice() {
     if (dev) {
@@ -204,8 +237,10 @@ private:
 
   double freqHz{433.81e6};
   double rate{2.6e6};
+  double gainDb{40.0};
   std::atomic<double> pendingFreqHz{433.81e6};
   std::atomic<double> pendingRate{2.6e6};
+  std::atomic<double> pendingGain{40.0};
 
   SoapySDR::Device *dev{nullptr};
   SoapySDR::Stream *stream{nullptr};
@@ -229,6 +264,8 @@ SDRReceiver::SDRReceiver(QObject *parent) : QObject(parent) {
 SDRReceiver::~SDRReceiver() { stopStream(); }
 
 void SDRReceiver::startStream(double freqMHz, double sampleRate) {
+  lastFreqMHz = freqMHz;
+  currentSampleRate = sampleRate;
   if (streaming) {
     // Update immediately without relying on the worker event loop
     if (worker)
@@ -248,6 +285,7 @@ void SDRReceiver::startStream(double freqMHz, double sampleRate) {
                               Q_ARG(int, currentFftSize));
     // Seed pending configuration for the worker loop to apply
     worker->configureImmediate(freqMHz, sampleRate);
+    worker->setGain(currentGainDb);
     QMetaObject::invokeMethod(worker, "startWork", Qt::QueuedConnection);
   });
   connect(thread, &QThread::finished, worker, &QObject::deleteLater);
@@ -285,6 +323,22 @@ void SDRReceiver::setFftSize(int size) {
   if (worker) {
     QMetaObject::invokeMethod(worker, "updateFftSize", Qt::QueuedConnection,
                               Q_ARG(int, clamped));
+  }
+}
+
+void SDRReceiver::setGainDb(double gainDb) {
+  currentGainDb = gainDb;
+  if (worker) {
+    QMetaObject::invokeMethod(worker, "setGain", Qt::QueuedConnection,
+                              Q_ARG(double, gainDb));
+  }
+}
+
+void SDRReceiver::setSampleRate(double sampleRate) {
+  currentSampleRate = sampleRate;
+  // If streaming, use existing immediate config pathway
+  if (streaming && worker) {
+    worker->configureImmediate(lastFreqMHz, sampleRate);
   }
 }
 
