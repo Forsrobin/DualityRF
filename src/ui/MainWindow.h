@@ -36,6 +36,7 @@ private slots:
   void onSpanChanged(int sliderValue);
   void onCaptureCompleted(const QString &filePath);
   void onTriggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above);
+  void onDetectorModeChanged(int index);
 
 private:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -65,6 +66,7 @@ private:
   QSlider *thresholdSlider;
   QLabel *thresholdLabel;
   QLabel *triggerStatusLabel;
+  QComboBox *detectorModeCombo;
 
   SDRReceiver *receiver;
   bool running;

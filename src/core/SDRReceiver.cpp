@@ -59,6 +59,12 @@ public slots:
     qInfo() << "[RX] Set capture span half-width (Hz)=" << halfSpanHz;
   }
 
+  void setDetectorModeSlot(int mode) {
+    int m = (mode == 1) ? 1 : 0;
+    detectorMode.store(m, std::memory_order_release);
+    qInfo() << "[RX] Set detector mode ->" << (m == 0 ? "Averaged" : "Peak");
+  }
+
   void armCapture(double preSec, double postSec) {
     qInfo() << "[RX] Arm capture pre(s)=" << preSec << "post(s)=" << postSec
             << "rate=" << rate << "freq(MHz)=" << freqHz/1e6;
@@ -239,13 +245,20 @@ public slots:
         for (int idx = startBin; idx <= endBin; ++idx)
           centerMax = std::max(centerMax, ampsShift[idx]);
         const float eps = 1e-6f;
-        // time-average the center power with ~0.25s time constant
-        double dtSec = (rate > 0.0) ? (double(ret) / rate) : 0.0;
-        double alphaAvg = 0.0;
-        if (dtSec > 0.0 && avgTauSeconds > 0.0)
-          alphaAvg = 1.0 - std::exp(-dtSec / avgTauSeconds);
-        centerAvgLin = (1.0 - alphaAvg) * centerAvgLin + alphaAvg * double(centerMax);
-        const double centerDb = 20.0 * std::log10(std::max(centerAvgLin, double(eps)));
+        // Choose detector: averaged vs peak
+        double centerDb = 0.0;
+        if (detectorMode.load(std::memory_order_acquire) == 0) {
+          // Averaged detector with ~avgTauSeconds time constant
+          double dtSec = (rate > 0.0) ? (double(ret) / rate) : 0.0;
+          double alphaAvg = 0.0;
+          if (dtSec > 0.0 && avgTauSeconds > 0.0)
+            alphaAvg = 1.0 - std::exp(-dtSec / avgTauSeconds);
+          centerAvgLin = (1.0 - alphaAvg) * centerAvgLin + alphaAvg * double(centerMax);
+          centerDb = 20.0 * std::log10(std::max(centerAvgLin, double(eps)));
+        } else {
+          // Peak detector (instantaneous)
+          centerDb = 20.0 * std::log10(std::max(double(centerMax), double(eps)));
+        }
         const double thrDb = triggerThresholdDb.load(std::memory_order_acquire);
         const bool aboveAvg = (centerDb >= thrDb);
         if (aboveAvg != lastAbove) {
@@ -274,7 +287,11 @@ public slots:
         }
 
         if (!inCapture.load(std::memory_order_acquire)) {
-          const uint64_t needAbove = static_cast<uint64_t>(std::llround(rate * dwellSeconds));
+          uint64_t needAbove = static_cast<uint64_t>(std::llround(rate * dwellSeconds));
+          if (detectorMode.load(std::memory_order_acquire) == 1) {
+            // Peak detector: require just one block above
+            needAbove = std::max<uint64_t>(ret, 1);
+          }
           if (aboveStreakSamples >= needAbove) {
             // Start capture: copy prebuffer content in chronological order
             inCapture.store(true, std::memory_order_release);
@@ -481,6 +498,7 @@ private:
   std::atomic<bool> inCapture{false};
   std::atomic<double> triggerThresholdDb{-30.0};
   std::atomic<double> captureSpanHalfHz{100000.0};
+  std::atomic<int> detectorMode{0}; // 0 averaged, 1 peak
   double preSeconds{1.0};
   double postSeconds{1.0};
   double dwellSeconds{0.10};
@@ -644,6 +662,13 @@ void SDRReceiver::setCaptureSpanHz(double halfSpanHz) {
   if (worker) {
     QMetaObject::invokeMethod(worker, "setCaptureSpanHzSlot", Qt::QueuedConnection,
                               Q_ARG(double, halfSpanHz));
+  }
+}
+
+void SDRReceiver::setDetectorMode(int mode) {
+  if (worker) {
+    QMetaObject::invokeMethod(worker, "setDetectorModeSlot", Qt::QueuedConnection,
+                              Q_ARG(int, mode));
   }
 }
 

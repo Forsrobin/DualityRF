@@ -28,6 +28,33 @@ MainWindow::MainWindow(QWidget *parent)
             color: cyan;
             font-family: monospace;
         }
+        QComboBox {
+            background-color: #001010;
+            color: cyan;
+            border: 1px solid cyan;
+            padding: 4px 28px 4px 6px; /* room for arrow */
+        }
+        QComboBox::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 24px;
+            border-left: 1px solid cyan;
+            background-color: #002222;
+        }
+        QComboBox::down-arrow {
+            width: 0; height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 8px solid cyan;
+            margin: 0 auto;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #001010;
+            color: cyan;
+            selection-background-color: #003333;
+            selection-color: cyan;
+            border: 1px solid cyan;
+        }
         QDoubleSpinBox {
             background-color: #001010;
             color: cyan;
@@ -203,6 +230,7 @@ MainWindow::MainWindow(QWidget *parent)
   // Ensure contents fit inside the combobox
   sampleRateCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
   sampleRateCombo->setMinimumContentsLength(9);
+  sampleRateCombo->setEditable(false);
 
   QWidget *topBarWidget = new QWidget(this);
   topBarWidget->setObjectName("TopBar");
@@ -275,6 +303,17 @@ MainWindow::MainWindow(QWidget *parent)
   thLayout->addWidget(new QLabel("Capture Span:", this));
   thLayout->addWidget(spanSlider, 1);
   thLayout->addWidget(spanLabel);
+  // Detector mode dropdown
+  thLayout->addSpacing(16);
+  thLayout->addWidget(new QLabel("Detector:", this));
+  detectorModeCombo = new QComboBox(this);
+  detectorModeCombo->addItem("Averaged"); // index 0
+  detectorModeCombo->addItem("Peak");     // index 1
+  detectorModeCombo->setCurrentIndex(0);
+  detectorModeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+  detectorModeCombo->setMinimumContentsLength(6);
+  detectorModeCombo->setEditable(false);
+  thLayout->addWidget(detectorModeCombo);
   thLayout->addSpacing(16);
   thLayout->addWidget(triggerStatusLabel);
   layout->addLayout(thLayout);
@@ -317,6 +356,8 @@ MainWindow::MainWindow(QWidget *parent)
   connect(sampleRateCombo, qOverload<int>(&QComboBox::currentIndexChanged),
           this, &MainWindow::onSampleRateChanged);
   connect(spanSlider, &QSlider::valueChanged, this, &MainWindow::onSpanChanged);
+  connect(detectorModeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+          this, &MainWindow::onDetectorModeChanged);
 
   // initialize threshold in receiver
   if (receiver)
@@ -325,6 +366,8 @@ MainWindow::MainWindow(QWidget *parent)
   if (receiver)
     receiver->setCaptureSpanHz(spanSlider->value() * 1000.0);
   waterfall->setCaptureSpanHz(spanSlider->value() * 1000.0);
+  if (receiver)
+    receiver->setDetectorMode(detectorModeCombo->currentIndex());
   qInfo() << "[UI] Initialized with RX(MHz)=" << rxFreq->value()
           << "TX(MHz)=" << txFreq->value()
           << "SR(Hz)=" << sampleRateHz;
@@ -411,9 +454,13 @@ void MainWindow::onTriggerStatus(bool armed, bool capturing, double centerDb, do
     return;
   }
   QString state = above ? "Above" : "Below";
+  QString mode = (detectorModeCombo && detectorModeCombo->currentIndex() == 1)
+                     ? "Peak"
+                     : "Avg";
   triggerStatusLabel->setText(
-      QString("Status: Armed • %1 (Center: %2 dB | Thr: %3 dB)")
+      QString("Status: Armed • %1 • %2 (Center: %3 dB | Thr: %4 dB)")
           .arg(state)
+          .arg(mode)
           .arg(centerDb, 0, 'f', 1)
           .arg(thresholdDb, 0, 'f', 0));
   qInfo() << "[UI] Trigger status:" << state
@@ -424,6 +471,14 @@ void MainWindow::onTriggerStatus(bool armed, bool capturing, double centerDb, do
   } else {
     triggerStatusLabel->setStyleSheet("color: #ffff80;");
   }
+}
+
+void MainWindow::onDetectorModeChanged(int index) {
+  Q_UNUSED(index);
+  if (receiver)
+    receiver->setDetectorMode(detectorModeCombo->currentIndex());
+  qInfo() << "[UI] Detector mode ->"
+          << (detectorModeCombo->currentIndex() == 1 ? "Peak" : "Averaged");
 }
 
 void MainWindow::onRxFrequencyChanged(double frequencyMHz) {
