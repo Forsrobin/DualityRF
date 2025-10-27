@@ -3,6 +3,7 @@
 #include <QFontMetrics>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 SpectrumWidget::SpectrumWidget(QWidget *parent) : QWidget(parent) {
   setMinimumHeight(180);
@@ -61,6 +62,11 @@ void SpectrumWidget::setZoomStep(int step) {
   }
 }
 
+void SpectrumWidget::setThresholdDb(double db) {
+  thresholdDb = db;
+  update();
+}
+
 void SpectrumWidget::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.fillRect(rect(), QColor(0, 0, 0));
@@ -102,6 +108,20 @@ void SpectrumWidget::paintEvent(QPaintEvent *) {
 
   drawTrace(peak, QColor(255, 180, 0));     // orange peak hold
   drawTrace(latest, QColor(0, 255, 255));   // cyan live
+
+  // Draw threshold line if set
+  if (!std::isnan(thresholdDb)) {
+    double t = (thresholdDb - dBmin) / (dBmax - dBmin);
+    int y = r.bottom() - int(std::round(t * r.height()));
+    QPen thrPen(QColor(255, 255, 0, 200));
+    thrPen.setStyle(Qt::DashLine);
+    thrPen.setWidth(1);
+    p.setPen(thrPen);
+    p.drawLine(r.left(), y, r.right(), y);
+    p.setPen(QColor(255, 255, 0));
+    p.drawText(r.right() - 140, y - 2, 136, 14, Qt::AlignRight,
+               QString("Thr: %1 dB").arg(thresholdDb, 0, 'f', 0));
+  }
 
   // frequency labels
   if (sampleRate > 0.0) {

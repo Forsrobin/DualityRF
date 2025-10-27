@@ -362,6 +362,7 @@ MainWindow::MainWindow(QWidget *parent)
   // initialize threshold in receiver
   if (receiver)
     receiver->setTriggerThresholdDb(-40.0);
+  spectrum->setThresholdDb(-40.0);
   // Initialize span (kHz -> Hz)
   if (receiver)
     receiver->setCaptureSpanHz(spanSlider->value() * 1000.0);
@@ -419,6 +420,8 @@ void MainWindow::onThresholdChanged(int sliderValue) {
   thresholdLabel->setText(QString("Threshold: %1 dB").arg(db, 0, 'f', 0));
   if (receiver)
     receiver->setTriggerThresholdDb(db);
+  if (spectrum)
+    spectrum->setThresholdDb(db);
   qInfo() << "[UI] Threshold set to (dB)=" << db;
 }
 
