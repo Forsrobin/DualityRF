@@ -21,6 +21,8 @@ public:
   void setCaptureSpanHz(double halfSpanHz); // detection half-span around RX
   // 0 = Averaged detector, 1 = Peak detector
   void setDetectorMode(int mode);
+  void setDwellSeconds(double seconds);
+  void setAvgTauSeconds(double seconds);
   void armTriggeredCapture(double preSeconds = 0.2, double postSeconds = 0.2);
   void cancelTriggeredCapture();
 

@@ -37,6 +37,8 @@ private slots:
   void onCaptureCompleted(const QString &filePath);
   void onTriggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above);
   void onDetectorModeChanged(int index);
+  void onDwellChanged(double seconds);
+  void onAvgTauChanged(double seconds);
 
 private:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -67,6 +69,8 @@ private:
   QLabel *thresholdLabel;
   QLabel *triggerStatusLabel;
   QComboBox *detectorModeCombo;
+  QDoubleSpinBox *dwellSpin;
+  QDoubleSpinBox *avgTauSpin;
 
   SDRReceiver *receiver;
   bool running;

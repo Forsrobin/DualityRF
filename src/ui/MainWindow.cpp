@@ -289,7 +289,8 @@ MainWindow::MainWindow(QWidget *parent)
   gainRateLayout->addWidget(gainLabel);
   layout->addLayout(gainRateLayout);
   layout->addLayout(freqLayout);
-  // Threshold control just above start
+  // Trigger status label above trigger controls
+  // Threshold control row
   QHBoxLayout *thLayout = new QHBoxLayout;
   thLayout->setSpacing(12);
   thLayout->addWidget(new QLabel("Capture Threshold:", this));
@@ -311,15 +312,37 @@ MainWindow::MainWindow(QWidget *parent)
   thLayout->addSpacing(16);
   thLayout->addWidget(new QLabel("Detector:", this));
   detectorModeCombo = new QComboBox(this);
-  detectorModeCombo->addItem("Peak");     // index 1
   detectorModeCombo->addItem("Averaged"); // index 0
+  detectorModeCombo->addItem("Peak");     // index 1
   detectorModeCombo->setCurrentIndex(0);
   detectorModeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
   detectorModeCombo->setMinimumContentsLength(6);
   detectorModeCombo->setEditable(false);
   thLayout->addWidget(detectorModeCombo);
+
+  // Dwell and Avg Tau controls
   thLayout->addSpacing(16);
-  thLayout->addWidget(triggerStatusLabel);
+  thLayout->addWidget(new QLabel("Dwell:", this));
+  dwellSpin = new QDoubleSpinBox(this);
+  dwellSpin->setDecimals(3);
+  dwellSpin->setRange(0.0, 1.0);
+  dwellSpin->setSingleStep(0.01);
+  dwellSpin->setValue(0.02); // default 20 ms
+  dwellSpin->setSuffix(" s");
+  thLayout->addWidget(dwellSpin);
+
+  thLayout->addSpacing(12);
+  thLayout->addWidget(new QLabel("Avg Tau:", this));
+  avgTauSpin = new QDoubleSpinBox(this);
+  avgTauSpin->setDecimals(3);
+  avgTauSpin->setRange(0.0, 2.0);
+  avgTauSpin->setSingleStep(0.05);
+  avgTauSpin->setValue(0.20); // default 200 ms
+  avgTauSpin->setSuffix(" s");
+  thLayout->addWidget(avgTauSpin);
+
+  // Place status text above the control row
+  layout->addWidget(triggerStatusLabel);
   layout->addLayout(thLayout);
   layout->addWidget(startButton);
   layout->addWidget(captureStatus1);
@@ -367,6 +390,10 @@ MainWindow::MainWindow(QWidget *parent)
   connect(spanSlider, &QSlider::valueChanged, this, &MainWindow::onSpanChanged);
   connect(detectorModeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
           this, &MainWindow::onDetectorModeChanged);
+  connect(dwellSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+          &MainWindow::onDwellChanged);
+  connect(avgTauSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+          &MainWindow::onAvgTauChanged);
 
   // initialize threshold in receiver
   if (receiver)
@@ -379,6 +406,10 @@ MainWindow::MainWindow(QWidget *parent)
   spectrum->setCaptureSpanHz(spanSlider->value() * 1000.0);
   if (receiver)
     receiver->setDetectorMode(detectorModeCombo->currentIndex());
+  if (receiver) {
+    receiver->setDwellSeconds(0.02);
+    receiver->setAvgTauSeconds(0.20);
+  }
   qInfo() << "[UI] Initialized with RX(MHz)=" << rxFreq->value()
           << "TX(MHz)=" << txFreq->value() << "SR(Hz)=" << sampleRateHz;
   connect(receiver, &SDRReceiver::captureCompleted, this,
@@ -496,6 +527,18 @@ void MainWindow::onDetectorModeChanged(int index) {
     receiver->setDetectorMode(detectorModeCombo->currentIndex());
   qInfo() << "[UI] Detector mode ->"
           << (detectorModeCombo->currentIndex() == 1 ? "Peak" : "Averaged");
+}
+
+void MainWindow::onDwellChanged(double seconds) {
+  if (receiver)
+    receiver->setDwellSeconds(std::max(0.0, seconds));
+  qInfo() << "[UI] Dwell seconds ->" << seconds;
+}
+
+void MainWindow::onAvgTauChanged(double seconds) {
+  if (receiver)
+    receiver->setAvgTauSeconds(std::max(0.0, seconds));
+  qInfo() << "[UI] Avg tau seconds ->" << seconds;
 }
 
 void MainWindow::onRxFrequencyChanged(double frequencyMHz) {

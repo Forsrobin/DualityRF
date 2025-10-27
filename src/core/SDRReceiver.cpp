@@ -1,7 +1,7 @@
 
 #include "SDRReceiver.h"
-#include <QDateTime>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QMetaType>
@@ -81,6 +81,20 @@ public slots:
     qInfo() << "[RX] Set detector mode ->" << (m == 0 ? "Averaged" : "Peak");
   }
 
+  void setDwellSecondsSlot(double s) {
+    if (s < 0.0)
+      s = 0.0;
+    dwellSeconds = s;
+    qInfo() << "[RX] Set dwell seconds ->" << s;
+  }
+
+  void setAvgTauSecondsSlot(double s) {
+    if (s < 0.0)
+      s = 0.0;
+    avgTauSeconds = s;
+    qInfo() << "[RX] Set avg tau seconds ->" << s;
+  }
+
   void armCapture(double preSec, double postSec) {
     qInfo() << "[RX] Arm capture pre(s)=" << preSec << "post(s)=" << postSec
             << "rate=" << rate << "freq(MHz)=" << freqHz / 1e6;
@@ -93,6 +107,7 @@ public slots:
     preHead = 0;
     centerAvgLin = 0.0;
     aboveStreakSamples = 0;
+    peakLogAccum = 0;
     // begin visible on-disk spooling so user sees a file immediately
     // we will delete this temporary once the trimmed capture is written
     if (spoolFile.isOpen())
@@ -133,6 +148,7 @@ public slots:
     captureBuffer.clear();
     centerAvgLin = 0.0;
     aboveStreakSamples = 0;
+    peakLogAccum = 0;
     if (spoolFile.isOpen()) {
       spoolFile.close();
       if (!spoolPath.isEmpty())
@@ -301,6 +317,20 @@ public slots:
           aboveStreakSamples += static_cast<uint64_t>(ret);
         else
           aboveStreakSamples = 0;
+
+        // Light-weight periodic notification while above threshold
+        if (aboveAvg) {
+          peakLogAccum += static_cast<uint64_t>(ret);
+          const uint64_t need =
+              static_cast<uint64_t>(std::llround(rate * peakLogSeconds));
+          if (peakLogAccum >= std::max<uint64_t>(need, 1)) {
+            qInfo() << "[RX] Peak detected" << "center(dB)=" << centerDb
+                    << "thr(dB)=" << thrDb;
+            peakLogAccum = 0;
+          }
+        } else {
+          peakLogAccum = 0;
+        }
 
         // notify trigger status based on averaged value
         emit triggerStatus(true, inCapture.load(std::memory_order_acquire),
@@ -568,6 +598,9 @@ private:
   uint64_t logSamplesAccum{0};
   double centerAvgLin{0.0};
   uint64_t aboveStreakSamples{0};
+  // periodic 'peak detected' logging while above threshold
+  double peakLogSeconds{0.2};
+  uint64_t peakLogAccum{0};
 
   double freqHz{433.81e6};
   double rate{2.6e6};
@@ -724,6 +757,20 @@ void SDRReceiver::setDetectorMode(int mode) {
   if (worker) {
     QMetaObject::invokeMethod(worker, "setDetectorModeSlot",
                               Qt::QueuedConnection, Q_ARG(int, mode));
+  }
+}
+
+void SDRReceiver::setDwellSeconds(double seconds) {
+  if (worker) {
+    QMetaObject::invokeMethod(worker, "setDwellSecondsSlot",
+                              Qt::QueuedConnection, Q_ARG(double, seconds));
+  }
+}
+
+void SDRReceiver::setAvgTauSeconds(double seconds) {
+  if (worker) {
+    QMetaObject::invokeMethod(worker, "setAvgTauSecondsSlot",
+                              Qt::QueuedConnection, Q_ARG(double, seconds));
   }
 }
 
