@@ -1,6 +1,7 @@
 
 #include "MainWindow.h"
 #include <QApplication>
+#include <QDebug>
 #include <QCloseEvent>
 #include <QDir>
 #include <QFrame>
@@ -141,6 +142,17 @@ MainWindow::MainWindow(QWidget *parent)
   captureStatus1 = new QLabel("Capture 1: EMPTY", this);
   captureStatus2 = new QLabel("Capture 2: EMPTY", this);
 
+  // Threshold slider (-100..0 dB), default -30 dB
+  thresholdSlider = new QSlider(Qt::Horizontal, this);
+  thresholdSlider->setRange(0, 100);
+  thresholdSlider->setSingleStep(1);
+  thresholdSlider->setPageStep(5);
+  // default to -40 dB (more sensitive; typical peaks ~-38 dB)
+  thresholdSlider->setValue(60); // maps to -40 dB
+  thresholdSlider->setFocusPolicy(Qt::NoFocus);
+  thresholdLabel = new QLabel("Threshold: -40 dB", this);
+  triggerStatusLabel = new QLabel("Status: Idle", this);
+
   zoomOutButton = new QPushButton("-", this);
   zoomInButton = new QPushButton("+", this);
   zoomOutButton->setFixedWidth(36);
@@ -245,6 +257,15 @@ MainWindow::MainWindow(QWidget *parent)
   gainRateLayout->addWidget(gainLabel);
   layout->addLayout(gainRateLayout);
   layout->addLayout(freqLayout);
+  // Threshold control just above start
+  QHBoxLayout *thLayout = new QHBoxLayout;
+  thLayout->setSpacing(12);
+  thLayout->addWidget(new QLabel("Capture Threshold:", this));
+  thLayout->addWidget(thresholdSlider, 1);
+  thLayout->addWidget(thresholdLabel);
+  thLayout->addSpacing(16);
+  thLayout->addWidget(triggerStatusLabel);
+  layout->addLayout(thLayout);
   layout->addWidget(startButton);
   layout->addWidget(captureStatus1);
   layout->addWidget(captureStatus2);
@@ -280,8 +301,18 @@ MainWindow::MainWindow(QWidget *parent)
   connect(zoomOutButton, &QPushButton::clicked, this, &MainWindow::onZoomOut);
   connect(zoomInButton, &QPushButton::clicked, this, &MainWindow::onZoomIn);
   connect(gainSlider, &QSlider::valueChanged, this, &MainWindow::onGainChanged);
+  connect(thresholdSlider, &QSlider::valueChanged, this, &MainWindow::onThresholdChanged);
   connect(sampleRateCombo, qOverload<int>(&QComboBox::currentIndexChanged),
           this, &MainWindow::onSampleRateChanged);
+
+  // initialize threshold in receiver
+  if (receiver)
+    receiver->setTriggerThresholdDb(-40.0);
+  qInfo() << "[UI] Initialized with RX(MHz)=" << rxFreq->value()
+          << "TX(MHz)=" << txFreq->value()
+          << "SR(Hz)=" << sampleRateHz;
+  connect(receiver, &SDRReceiver::captureCompleted, this, &MainWindow::onCaptureCompleted);
+  connect(receiver, &SDRReceiver::triggerStatus, this, &MainWindow::onTriggerStatus);
 }
 
 void MainWindow::startWaterfall() {
@@ -291,29 +322,78 @@ void MainWindow::startWaterfall() {
   spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   receiver->startStream(rxFreq->value(), sampleRateHz);
   waterfallActive = true;
+  qInfo() << "[UI] Waterfall started";
 }
 
 void MainWindow::onStart() {
-  // capture toggle only
   if (!running) {
+    qInfo() << "[UI] START clicked -> Arm capture";
+    // Arm trigger capture: clear statuses and begin buffering
+    captureStatus1->setText("Capture 1: EMPTY");
+    captureStatus2->setText("Capture 2: EMPTY");
     running = true;
     startButton->setText("STOP");
-    // pick a simple path
-    QDir().mkpath("captures");
-    const QString path =
-        QString("captures/%1.cf32")
-            .arg(QDateTime::currentDateTimeUtc().toString("yyyyMMdd_HHmmss"));
-    receiver->startCapture(path);
-    captureStatus1->setText("Capture 1: CAPTURED");
-    captureStatus2->setText("Capture 2: TRANSMITTED");
-    unlockButton->setEnabled(true);
+    unlockButton->setEnabled(false);
+    triggerStatusLabel->setText("Status: Armed");
+    triggerStatusLabel->setStyleSheet("");
+    if (receiver)
+      receiver->armTriggeredCapture(1.0, 0.2);
   } else {
+    qInfo() << "[UI] STOP clicked -> Cancel capture";
+    // Cancel armed/capturing state
     running = false;
     startButton->setText("START");
-    receiver->stopCapture();
+    if (receiver)
+      receiver->cancelTriggeredCapture();
     captureStatus1->setText("Capture 1: EMPTY");
     captureStatus2->setText("Capture 2: EMPTY");
     unlockButton->setEnabled(false);
+    triggerStatusLabel->setText("Status: Idle");
+    triggerStatusLabel->setStyleSheet("");
+  }
+}
+
+void MainWindow::onThresholdChanged(int sliderValue) {
+  // map 0..100 -> -100..0 dB
+  double db = -100.0 + sliderValue;
+  thresholdLabel->setText(QString("Threshold: %1 dB").arg(db, 0, 'f', 0));
+  if (receiver)
+    receiver->setTriggerThresholdDb(db);
+  qInfo() << "[UI] Threshold set to (dB)=" << db;
+}
+
+void MainWindow::onCaptureCompleted(const QString &filePath) {
+  Q_UNUSED(filePath);
+  running = false;
+  startButton->setText("START");
+  captureStatus1->setText("Capture 1: CAPTURED");
+  // leave capture 2 as EMPTY for now
+  unlockButton->setEnabled(true);
+  triggerStatusLabel->setText("Status: Captured");
+  triggerStatusLabel->setStyleSheet("");
+  qInfo() << "[UI] Capture completed ->" << filePath;
+}
+
+void MainWindow::onTriggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above) {
+  Q_UNUSED(capturing);
+  if (!armed) {
+    triggerStatusLabel->setText("Status: Idle");
+    triggerStatusLabel->setStyleSheet("");
+    return;
+  }
+  QString state = above ? "Above" : "Below";
+  triggerStatusLabel->setText(
+      QString("Status: Armed • %1 (Center: %2 dB | Thr: %3 dB)")
+          .arg(state)
+          .arg(centerDb, 0, 'f', 1)
+          .arg(thresholdDb, 0, 'f', 0));
+  qInfo() << "[UI] Trigger status:" << state
+          << "center(dB)=" << centerDb
+          << "thr(dB)=" << thresholdDb;
+  if (above) {
+    triggerStatusLabel->setStyleSheet("color: #80ff80;");
+  } else {
+    triggerStatusLabel->setStyleSheet("color: #ffff80;");
   }
 }
 
@@ -327,6 +407,7 @@ void MainWindow::onRxFrequencyChanged(double frequencyMHz) {
   waterfall->reset();
   spectrum->resetPeaks();
   receiver->startStream(frequencyMHz, sampleRateHz);
+  qInfo() << "[UI] RX frequency changed ->" << frequencyMHz << "MHz";
 }
 
 void MainWindow::onExitRequested() { close(); }
@@ -400,6 +481,7 @@ void MainWindow::onGainChanged(int sliderValue) {
   gainLabel->setText(QString("Gain: %1 dB").arg(g, 0, 'f', 1));
   if (receiver)
     receiver->setGainDb(g);
+  qInfo() << "[UI] Gain changed ->" << g << "dB";
 }
 
 void MainWindow::onSampleRateChanged(int index) {
@@ -414,6 +496,7 @@ void MainWindow::onSampleRateChanged(int index) {
     spectrum->resetPeaks();
     receiver->startStream(rxFreq->value(), sampleRateHz);
   }
+  qInfo() << "[UI] Sample rate changed ->" << sr;
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {

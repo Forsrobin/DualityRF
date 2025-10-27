@@ -32,6 +32,9 @@ private slots:
   void onZoomIn();
   void onGainChanged(int sliderValue);
   void onSampleRateChanged(int index);
+  void onThresholdChanged(int sliderValue);
+  void onCaptureCompleted(const QString &filePath);
+  void onTriggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above);
 
 private:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -56,6 +59,9 @@ private:
   SpectrumWidget *spectrum;
   QLabel *captureStatus1;
   QLabel *captureStatus2;
+  QSlider *thresholdSlider;
+  QLabel *thresholdLabel;
+  QLabel *triggerStatusLabel;
 
   SDRReceiver *receiver;
   bool running;

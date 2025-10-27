@@ -1,6 +1,9 @@
 
 #include "SDRReceiver.h"
 #include <QMetaType>
+#include <QDir>
+#include <QDateTime>
+#include <QDebug>
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Formats.h>
 #include <algorithm>
@@ -44,8 +47,74 @@ public slots:
     reconfigureRequested.store(true, std::memory_order_release);
   }
 
+  void setThresholdDb(double db) {
+    triggerThresholdDb.store(db, std::memory_order_release);
+    qInfo() << "[RX] Set trigger threshold (dB)=" << db;
+  }
+
+  void armCapture(double preSec, double postSec) {
+    qInfo() << "[RX] Arm capture pre(s)=" << preSec << "post(s)=" << postSec
+            << "rate=" << rate << "freq(MHz)=" << freqHz/1e6;
+    armed.store(true, std::memory_order_release);
+    inCapture.store(false, std::memory_order_release);
+    preSeconds = std::max(0.0, preSec);
+    postSeconds = std::max(0.0, postSec);
+    belowSamples = 0;
+    totalSamplesSinceArm = 0;
+    preHead = 0;
+    centerAvgLin = 0.0;
+    aboveStreakSamples = 0;
+    // begin visible on-disk spooling so user sees a file immediately
+    // we will delete this temporary once the trimmed capture is written
+    if (spoolFile.isOpen())
+      spoolFile.close();
+    QDir().mkpath("captures");
+    armStartTime = QDateTime::currentDateTimeUtc();
+    QString ts = armStartTime.toString("yyyyMMdd_HHmmss");
+    double rxMHz = freqHz / 1e6;
+    spoolPath = QString("captures/in_progress_%1_RX%2.cf32.part")
+                    .arg(ts)
+                    .arg(rxMHz, 0, 'f', 3);
+    spoolFile.setFileName(spoolPath);
+    if (!spoolFile.open(QIODevice::WriteOnly)) {
+      // if we cannot open, just proceed without spooling
+      spoolPath.clear();
+    }
+    if (!spoolPath.isEmpty())
+      qInfo() << "[RX] Spooling to" << spoolPath;
+    // configure prebuffer capacity based on current sample rate
+    preBufferCap = static_cast<uint64_t>(std::llround(rate * preSeconds));
+    preBuffer.clear();
+    if (preBufferCap > 0) {
+      preBuffer.resize(static_cast<size_t>(preBufferCap));
+      preHead = 0;
+      preFilled = 0;
+    }
+  }
+
+  void cancelCapture() {
+    qInfo() << "[RX] Cancel capture";
+    armed.store(false, std::memory_order_release);
+    inCapture.store(false, std::memory_order_release);
+    belowSamples = 0;
+    totalSamplesSinceArm = 0;
+    preHead = 0;
+    preFilled = 0;
+    preBuffer.clear();
+    captureBuffer.clear();
+    centerAvgLin = 0.0;
+    aboveStreakSamples = 0;
+    if (spoolFile.isOpen()) {
+      spoolFile.close();
+      if (!spoolPath.isEmpty())
+        QFile::remove(spoolPath);
+      spoolPath.clear();
+    }
+  }
+
   void startWork() {
     running = true;
+    qInfo() << "[RX] Worker thread start";
     activeFftSize =
         std::clamp(requestedFftSize.load(std::memory_order_acquire), 512, 8192);
     std::vector<std::complex<float>> buff(activeFftSize);
@@ -126,6 +195,138 @@ public slots:
         ampsShift[i] = amps[(i + half) % activeFftSize];
       emit newFFTData(ampsShift);
 
+      // Triggered capture logic
+      if (armed.load(std::memory_order_acquire)) {
+        // Continuously spool raw samples to a temporary file so the user
+        // sees a file immediately while armed.
+        if (spoolFile.isOpen()) {
+          spoolFile.write(reinterpret_cast<const char *>(buff.data()),
+                          ret * sizeof(std::complex<float>));
+        }
+        // 1) maintain 1s prebuffer ring
+        if (preBufferCap > 0) {
+          for (int i = 0; i < ret; ++i) {
+            if (preBuffer.empty()) break; // safety
+            preBuffer[static_cast<size_t>(preHead)] = buff[i];
+            preHead = (preHead + 1) % preBufferCap;
+            if (preFilled < preBufferCap)
+              ++preFilled;
+          }
+        }
+        totalSamplesSinceArm += static_cast<uint64_t>(ret);
+
+        // 2) detect activity near RX center within ~±100 kHz (or at least ±2 bins)
+        const int half = activeFftSize / 2;
+        double binHz = (activeFftSize > 0) ? (rate / double(activeFftSize)) : 0.0;
+        int winBins = 2;
+        if (binHz > 0.0) {
+          winBins = std::max(2, int(std::round(100000.0 / binHz))); // ~±100 kHz
+          winBins = std::min(winBins, half - 1);
+        }
+        float centerMax = 0.0f;
+        int startBin = std::max(0, half - winBins);
+        int endBin = std::min(activeFftSize - 1, half + winBins);
+        for (int idx = startBin; idx <= endBin; ++idx)
+          centerMax = std::max(centerMax, ampsShift[idx]);
+        const float eps = 1e-6f;
+        // time-average the center power with ~0.25s time constant
+        double dtSec = (rate > 0.0) ? (double(ret) / rate) : 0.0;
+        double alphaAvg = 0.0;
+        if (dtSec > 0.0 && avgTauSeconds > 0.0)
+          alphaAvg = 1.0 - std::exp(-dtSec / avgTauSeconds);
+        centerAvgLin = (1.0 - alphaAvg) * centerAvgLin + alphaAvg * double(centerMax);
+        const double centerDb = 20.0 * std::log10(std::max(centerAvgLin, double(eps)));
+        const double thrDb = triggerThresholdDb.load(std::memory_order_acquire);
+        const bool aboveAvg = (centerDb >= thrDb);
+        if (aboveAvg != lastAbove) {
+          lastAbove = aboveAvg;
+          qInfo() << "[RX] Trigger" << (aboveAvg ? "ABOVE" : "below")
+                  << "center(dB)=" << centerDb << "thr(dB)=" << thrDb;
+        }
+
+        // accumulate above time for dwell requirement
+        if (aboveAvg)
+          aboveStreakSamples += static_cast<uint64_t>(ret);
+        else
+          aboveStreakSamples = 0;
+
+        // notify trigger status based on averaged value
+        emit triggerStatus(true, inCapture.load(std::memory_order_acquire), centerDb, thrDb, aboveAvg);
+
+        if (!inCapture.load(std::memory_order_acquire)) {
+          const uint64_t needAbove = static_cast<uint64_t>(std::llround(rate * dwellSeconds));
+          if (aboveStreakSamples >= needAbove) {
+            // Start capture: copy prebuffer content in chronological order
+            inCapture.store(true, std::memory_order_release);
+            captureBuffer.clear();
+            qInfo() << "[RX] Capture START (preFilled=" << preFilled
+                    << ", fftSize=" << activeFftSize << ")";
+            if (preFilled > 0 && !preBuffer.empty()) {
+              uint64_t count = preFilled;
+              uint64_t head = preHead; // points to oldest position to be overwritten next
+              // oldest sample is at head when full; when partially filled, oldest at 0
+              if (preFilled == preBufferCap) {
+                // full ring: start from head to end, then 0 to head-1
+                for (uint64_t i = 0; i < preBufferCap; ++i) {
+                  uint64_t idx = (head + i) % preBufferCap;
+                  captureBuffer.push_back(preBuffer[static_cast<size_t>(idx)]);
+                }
+              } else {
+                // not full yet: take 0..preFilled-1
+                captureBuffer.insert(captureBuffer.end(), preBuffer.begin(), preBuffer.begin() + static_cast<long>(preFilled));
+              }
+            }
+            // include current chunk
+            captureBuffer.insert(captureBuffer.end(), buff.begin(), buff.begin() + ret);
+            belowSamples = 0;
+          }
+        } else {
+          // already capturing, keep appending
+          captureBuffer.insert(captureBuffer.end(), buff.begin(), buff.begin() + ret);
+          if (aboveAvg) {
+            belowSamples = 0;
+          } else {
+            belowSamples += static_cast<uint64_t>(ret);
+            const uint64_t needPost = static_cast<uint64_t>(std::llround(rate * postSeconds));
+            if (belowSamples >= needPost) {
+              // finalize: write buffer to file
+              QString outPath = makeCapturePath();
+              if (!outPath.isEmpty()) {
+                QFile out(outPath);
+                if (out.open(QIODevice::WriteOnly)) {
+                  if (!captureBuffer.empty()) {
+                    out.write(reinterpret_cast<const char *>(captureBuffer.data()),
+                              qint64(captureBuffer.size() * sizeof(std::complex<float>)));
+                  }
+                  out.close();
+                }
+              }
+              qInfo() << "[RX] Capture COMPLETE ->" << outPath
+                      << "samples=" << captureBuffer.size();
+              // cleanup spooling temp
+              if (spoolFile.isOpen())
+                spoolFile.close();
+              if (!spoolPath.isEmpty()) {
+                QFile::remove(spoolPath);
+                spoolPath.clear();
+              }
+              // reset
+              armed.store(false, std::memory_order_release);
+              inCapture.store(false, std::memory_order_release);
+              belowSamples = 0;
+              totalSamplesSinceArm = 0;
+              preHead = 0;
+              preFilled = 0;
+              preBuffer.clear();
+              captureBuffer.clear();
+              centerAvgLin = 0.0;
+              aboveStreakSamples = 0;
+              emit captureCompleted(outPath);
+            }
+          }
+        }
+      }
+
       // optional capture
       if (capturing && file.isOpen()) {
         file.write(reinterpret_cast<const char *>(buff.data()),
@@ -158,11 +359,13 @@ public slots:
       return;
     }
     capturing = true;
+    qInfo() << "[RX] Manual capture BEGIN ->" << path;
   }
   void endCapture() {
     capturing = false;
     if (file.isOpen())
       file.close();
+    qInfo() << "[RX] Manual capture END";
   }
   void updateFftSize(int size) {
     int clamped = std::clamp(size, 512, 8192);
@@ -177,6 +380,16 @@ public slots:
   }
 
 private:
+  QString makeCapturePath() {
+    QDir().mkpath("captures");
+    QString ts = armStartTime.toString("yyyyMMdd_HHmmss");
+    double rxMHz = freqHz / 1e6;
+    double thr = triggerThresholdDb.load(std::memory_order_acquire);
+    return QString("captures/%1_RX%2_thr%3.cf32")
+        .arg(ts)
+        .arg(rxMHz, 0, 'f', 3)
+        .arg(thr, 0, 'f', 0);
+  }
   void openDevice() {
     try {
       SoapySDR::Kwargs args;
@@ -185,7 +398,9 @@ private:
       stream = dev->setupStream(SOAPY_SDR_RX, SOAPY_SDR_CF32);
       applyTuning();
       dev->activateStream(stream);
+      qInfo() << "[RX] Device opened + stream activated";
     } catch (...) {
+      qWarning() << "[RX] Failed to open RTL-SDR device";
       dev = nullptr;
       stream = nullptr;
     }
@@ -202,6 +417,8 @@ private:
     try { dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb); } catch (...) {}
     try { dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb); } catch (...) {}
     try { dev->setGain(SOAPY_SDR_RX, 0, gainDb); } catch (...) {}
+    qInfo() << "[RX] Applied tuning" << "freq(MHz)=" << freqHz/1e6
+            << "rate=" << rate << "gain(dB)=" << gainDb;
   }
   void closeDevice() {
     if (dev) {
@@ -239,6 +456,23 @@ private:
   std::atomic<bool> running{false};
   std::atomic<bool> capturing{false};
   std::atomic<bool> reconfigureRequested{false};
+  std::atomic<bool> armed{false};
+  std::atomic<bool> inCapture{false};
+  std::atomic<double> triggerThresholdDb{-30.0};
+  double preSeconds{1.0};
+  double postSeconds{1.0};
+  double dwellSeconds{0.10};
+  // Slightly quicker response to short packets
+  // (can be adjusted via code if needed)
+  // NOTE: this is the default value; logic uses this to compute required
+  // samples above threshold before starting capture.
+  
+  
+  double avgTauSeconds{0.20};
+  uint64_t belowSamples{0};
+  uint64_t totalSamplesSinceArm{0};
+  double centerAvgLin{0.0};
+  uint64_t aboveStreakSamples{0};
 
   double freqHz{433.81e6};
   double rate{2.6e6};
@@ -258,9 +492,22 @@ private:
   int activeFftSize{4096};
 
   QFile file;
+  // live spooling while armed (for user feedback)
+  QFile spoolFile;
+  QString spoolPath;
+  // Triggered capture buffers
+  std::vector<std::complex<float>> preBuffer; // ring buffer storage
+  uint64_t preBufferCap{0};
+  uint64_t preFilled{0};
+  uint64_t preHead{0}; // next position to overwrite
+  std::vector<std::complex<float>> captureBuffer;
+  QDateTime armStartTime;
+  bool lastAbove{false};
 
 signals:
   void newFFTData(QVector<float> data);
+  void captureCompleted(QString filePath);
+  void triggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above);
 };
 
 SDRReceiver::SDRReceiver(QObject *parent) : QObject(parent) {
@@ -284,6 +531,10 @@ void SDRReceiver::startStream(double freqMHz, double sampleRate) {
   worker->moveToThread(thread);
 
   connect(worker, &Worker::newFFTData, this, &SDRReceiver::newFFTData,
+          Qt::QueuedConnection);
+  connect(worker, &Worker::captureCompleted, this, &SDRReceiver::captureCompleted,
+          Qt::QueuedConnection);
+  connect(worker, &Worker::triggerStatus, this, &SDRReceiver::triggerStatus,
           Qt::QueuedConnection);
   connect(thread, &QThread::started, [=]() {
     QMetaObject::invokeMethod(worker, "updateFftSize", Qt::QueuedConnection,
@@ -357,6 +608,26 @@ void SDRReceiver::stopCapture() {
   if (!streaming || !worker)
     return;
   QMetaObject::invokeMethod(worker, "endCapture", Qt::QueuedConnection);
+}
+
+void SDRReceiver::setTriggerThresholdDb(double thresholdDb) {
+  if (worker) {
+    QMetaObject::invokeMethod(worker, "setThresholdDb", Qt::QueuedConnection,
+                              Q_ARG(double, thresholdDb));
+  }
+}
+
+void SDRReceiver::armTriggeredCapture(double preSeconds, double postSeconds) {
+  if (!streaming || !worker)
+    return;
+  QMetaObject::invokeMethod(worker, "armCapture", Qt::QueuedConnection,
+                            Q_ARG(double, preSeconds), Q_ARG(double, postSeconds));
+}
+
+void SDRReceiver::cancelTriggeredCapture() {
+  if (!streaming || !worker)
+    return;
+  QMetaObject::invokeMethod(worker, "cancelCapture", Qt::QueuedConnection);
 }
 
 #include "SDRReceiver.moc"

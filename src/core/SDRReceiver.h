@@ -17,6 +17,9 @@ public:
   void setFftSize(int size);
   void setGainDb(double gainDb);
   void setSampleRate(double sampleRate);
+  void setTriggerThresholdDb(double thresholdDb);
+  void armTriggeredCapture(double preSeconds = 1.0, double postSeconds = 1.0);
+  void cancelTriggeredCapture();
 
 public slots:
   // toggles capture without stopping the stream
@@ -25,6 +28,8 @@ public slots:
 
 signals:
   void newFFTData(QVector<float> data);
+  void captureCompleted(QString filePath);
+  void triggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above);
 
 private:
   class Worker;
