@@ -67,6 +67,19 @@ void SpectrumWidget::setThresholdDb(double db) {
   update();
 }
 
+void SpectrumWidget::setRxTxFrequencies(double rxHz, double txHz) {
+  rxFrequencyHz = rxHz;
+  txFrequencyHz = txHz;
+  update();
+}
+
+void SpectrumWidget::setCaptureSpanHz(double halfSpanHz) {
+  if (halfSpanHz < 0.0)
+    halfSpanHz = 0.0;
+  captureSpanHalfHz = halfSpanHz;
+  update();
+}
+
 void SpectrumWidget::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.fillRect(rect(), QColor(0, 0, 0));
@@ -122,6 +135,49 @@ void SpectrumWidget::paintEvent(QPaintEvent *) {
     p.drawText(r.right() - 140, y - 2, 136, 14, Qt::AlignRight,
                QString("Thr: %1 dB").arg(thresholdDb, 0, 'f', 0));
   }
+
+  // Draw capture span overlay on spectrum as in waterfall
+  if (sampleRate > 0.0 && rxFrequencyHz > 0.0 && captureSpanHalfHz > 0.0) {
+    double span = sampleRate / zoomFactor();
+    double startFreq = centerHz - span / 2.0;
+    double invSpan = 1.0 / span;
+    int xL = r.left() + int(std::round(std::clamp((rxFrequencyHz - captureSpanHalfHz - startFreq) * invSpan, 0.0, 1.0) * r.width()));
+    int xR = r.left() + int(std::round(std::clamp((rxFrequencyHz + captureSpanHalfHz - startFreq) * invSpan, 0.0, 1.0) * r.width()));
+    if (xL > xR) std::swap(xL, xR);
+
+    // Lines
+    QPen spanPen(QColor(0, 255, 0));
+    spanPen.setWidth(2);
+    p.setPen(spanPen);
+    p.drawLine(xL, r.top(), xL, r.bottom());
+    p.drawLine(xR, r.top(), xR, r.bottom());
+
+    // Fill
+    p.save();
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 255, 0, 40));
+    p.drawRect(QRect(QPoint(xL, r.top()), QPoint(xR, r.bottom())));
+    p.restore();
+  }
+
+  // Draw RX/TX guide lines similar to the waterfall
+  auto drawGuide = [&](double freq, const QColor &color) {
+    if (sampleRate <= 0.0 || freq <= 0.0)
+      return;
+    double span = sampleRate / zoomFactor();
+    double startFreq = centerHz - span / 2.0;
+    double ratio = (freq - startFreq) / span;
+    if (ratio < 0.0 || ratio > 1.0)
+      return;
+    int x = r.left() + int(std::round(ratio * r.width()));
+    QPen pen(color);
+    pen.setWidth(2);
+    p.setPen(pen);
+    p.drawLine(x, r.top(), x, r.bottom());
+  };
+
+  drawGuide(rxFrequencyHz, QColor(255, 255, 0)); // RX yellow
+  drawGuide(txFrequencyHz, QColor(255, 80, 80));  // TX red
 
   // frequency labels
   if (sampleRate > 0.0) {

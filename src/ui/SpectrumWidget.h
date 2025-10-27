@@ -13,6 +13,8 @@ public slots:
   void resetPeaks();
   void setZoomStep(int step);
   void setThresholdDb(double db);
+  void setRxTxFrequencies(double rxHz, double txHz);
+  void setCaptureSpanHz(double halfSpanHz);
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -25,9 +27,12 @@ private:
   QVector<float> peak;   // peak hold 0..1
   double centerHz{0.0};
   double sampleRate{0.0};
+  double rxFrequencyHz{0.0};
+  double txFrequencyHz{0.0};
   float dBmin{-110.0f};
   float dBmax{-10.0f};
   double thresholdDb{std::numeric_limits<double>::quiet_NaN()};
   int zoomStep{0};
+  double captureSpanHalfHz{0.0};
   double zoomFactor() const;
 };

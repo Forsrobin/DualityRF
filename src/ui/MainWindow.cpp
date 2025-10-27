@@ -241,6 +241,10 @@ MainWindow::MainWindow(QWidget *parent)
   topBarLayout->setSpacing(12);
   QLabel *titleLabel = new QLabel("Duality RF Console", topBarWidget);
   titleLabel->setStyleSheet("font-weight: bold;");
+  // Reset Peaks button on the far left
+  QPushButton *resetPeaksBtn = new QPushButton("RESET PEAKS", topBarWidget);
+  topBarLayout->addWidget(resetPeaksBtn);
+  topBarLayout->addSpacing(12);
   topBarLayout->addWidget(titleLabel);
   topBarLayout->addStretch(1);
   topBarLayout->addWidget(exitButton);
@@ -327,11 +331,13 @@ MainWindow::MainWindow(QWidget *parent)
   waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
+  spectrum->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
 
   connect(receiver, &SDRReceiver::newFFTData, waterfall,
           &WaterfallWidget::pushData, Qt::QueuedConnection);
   connect(receiver, &SDRReceiver::newFFTData, spectrum,
           &SpectrumWidget::pushData, Qt::QueuedConnection);
+  connect(resetPeaksBtn, &QPushButton::clicked, spectrum, &SpectrumWidget::resetPeaks);
   connect(startButton, &QPushButton::clicked, this, &MainWindow::onStart);
   connect(unlockButton, &QPushButton::clicked, this,
           &MainWindow::onStateUpdate);
@@ -346,6 +352,7 @@ MainWindow::MainWindow(QWidget *parent)
               &QDoubleSpinBox::valueChanged),
           this, [this](double txMHz) {
             waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txMHz * 1e6);
+            spectrum->setRxTxFrequencies(rxFreq->value() * 1e6, txMHz * 1e6);
           });
   connect(zoomSlider, &QSlider::valueChanged, this,
           &MainWindow::onZoomSliderChanged);
@@ -367,6 +374,7 @@ MainWindow::MainWindow(QWidget *parent)
   if (receiver)
     receiver->setCaptureSpanHz(spanSlider->value() * 1000.0);
   waterfall->setCaptureSpanHz(spanSlider->value() * 1000.0);
+  spectrum->setCaptureSpanHz(spanSlider->value() * 1000.0);
   if (receiver)
     receiver->setDetectorMode(detectorModeCombo->currentIndex());
   qInfo() << "[UI] Initialized with RX(MHz)=" << rxFreq->value()
@@ -381,6 +389,7 @@ void MainWindow::startWaterfall() {
   waterfall->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
   spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
+  spectrum->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
   receiver->startStream(rxFreq->value(), sampleRateHz);
   waterfallActive = true;
   qInfo() << "[UI] Waterfall started";
@@ -434,6 +443,8 @@ void MainWindow::onSpanChanged(int sliderValue) {
     receiver->setCaptureSpanHz(halfHz);
   if (waterfall)
     waterfall->setCaptureSpanHz(halfHz);
+  if (spectrum)
+    spectrum->setCaptureSpanHz(halfHz);
   qInfo() << "[UI] Capture span set to ±" << kHz << "kHz";
 }
 
@@ -488,6 +499,7 @@ void MainWindow::onRxFrequencyChanged(double frequencyMHz) {
   waterfall->setFrequencyInfo(frequencyMHz * 1e6, sampleRateHz);
   waterfall->setRxTxFrequencies(frequencyMHz * 1e6, txFreq->value() * 1e6);
   spectrum->setFrequencyInfo(frequencyMHz * 1e6, sampleRateHz);
+  spectrum->setRxTxFrequencies(frequencyMHz * 1e6, txFreq->value() * 1e6);
   if (!waterfallActive)
     return;
 
