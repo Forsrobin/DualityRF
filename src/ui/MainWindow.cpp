@@ -237,15 +237,13 @@ MainWindow::MainWindow(QWidget *parent)
   topBarWidget->setFixedHeight(30);
   topBarWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   QHBoxLayout *topBarLayout = new QHBoxLayout(topBarWidget);
-  topBarLayout->setContentsMargins(10, 4, 10, 4);
+  topBarLayout->setContentsMargins(10, 6, 10, 6);
   topBarLayout->setSpacing(12);
-  QLabel *titleLabel = new QLabel("Duality RF Console", topBarWidget);
-  titleLabel->setStyleSheet("font-weight: bold;");
-  // Reset Peaks button on the far left
+  // Reset Peaks and Info buttons on the far left
   QPushButton *resetPeaksBtn = new QPushButton("RESET PEAKS", topBarWidget);
+  infoButton = new QPushButton("INFO", topBarWidget);
   topBarLayout->addWidget(resetPeaksBtn);
-  topBarLayout->addSpacing(12);
-  topBarLayout->addWidget(titleLabel);
+  topBarLayout->addWidget(infoButton);
   topBarLayout->addStretch(1);
   topBarLayout->addWidget(exitButton);
 
@@ -289,8 +287,44 @@ MainWindow::MainWindow(QWidget *parent)
   gainRateLayout->addWidget(gainLabel);
   layout->addLayout(gainRateLayout);
   layout->addLayout(freqLayout);
+
+  // Detector + dwell/avg tau row under RX/TX inputs
+  QHBoxLayout *detLayout = new QHBoxLayout;
+  detLayout->setSpacing(12);
+  detLayout->addWidget(new QLabel("Detector:", this));
+  detectorModeCombo = new QComboBox(this);
+  detectorModeCombo->addItem("Averaged"); // index 0
+  detectorModeCombo->addItem("Peak");     // index 1
+  detectorModeCombo->setCurrentIndex(0);
+  detectorModeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+  detectorModeCombo->setMinimumContentsLength(6);
+  detectorModeCombo->setEditable(false);
+  detLayout->addWidget(detectorModeCombo);
+
+  detLayout->addSpacing(16);
+  detLayout->addWidget(new QLabel("Dwell:", this));
+  dwellSpin = new QDoubleSpinBox(this);
+  dwellSpin->setDecimals(3);
+  dwellSpin->setRange(0.0, 1.0);
+  dwellSpin->setSingleStep(0.01);
+  dwellSpin->setValue(0.02); // default 20 ms
+  dwellSpin->setSuffix(" s");
+  detLayout->addWidget(dwellSpin);
+
+  detLayout->addSpacing(12);
+  detLayout->addWidget(new QLabel("Avg Tau:", this));
+  avgTauSpin = new QDoubleSpinBox(this);
+  avgTauSpin->setDecimals(3);
+  avgTauSpin->setRange(0.0, 2.0);
+  avgTauSpin->setSingleStep(0.05);
+  avgTauSpin->setValue(0.20); // default 200 ms
+  avgTauSpin->setSuffix(" s");
+  detLayout->addWidget(avgTauSpin);
+
+  layout->addLayout(detLayout);
+
   // Trigger status label above trigger controls
-  // Threshold control row
+  // Threshold + capture span row
   QHBoxLayout *thLayout = new QHBoxLayout;
   thLayout->setSpacing(12);
   thLayout->addWidget(new QLabel("Capture Threshold:", this));
@@ -308,39 +342,6 @@ MainWindow::MainWindow(QWidget *parent)
   thLayout->addWidget(new QLabel("Capture Span:", this));
   thLayout->addWidget(spanSlider, 1);
   thLayout->addWidget(spanLabel);
-  // Detector mode dropdown
-  thLayout->addSpacing(16);
-  thLayout->addWidget(new QLabel("Detector:", this));
-  detectorModeCombo = new QComboBox(this);
-  detectorModeCombo->addItem("Averaged"); // index 0
-  detectorModeCombo->addItem("Peak");     // index 1
-  detectorModeCombo->setCurrentIndex(0);
-  detectorModeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-  detectorModeCombo->setMinimumContentsLength(6);
-  detectorModeCombo->setEditable(false);
-  thLayout->addWidget(detectorModeCombo);
-
-  // Dwell and Avg Tau controls
-  thLayout->addSpacing(16);
-  thLayout->addWidget(new QLabel("Dwell:", this));
-  dwellSpin = new QDoubleSpinBox(this);
-  dwellSpin->setDecimals(3);
-  dwellSpin->setRange(0.0, 1.0);
-  dwellSpin->setSingleStep(0.01);
-  dwellSpin->setValue(0.02); // default 20 ms
-  dwellSpin->setSuffix(" s");
-  thLayout->addWidget(dwellSpin);
-
-  thLayout->addSpacing(12);
-  thLayout->addWidget(new QLabel("Avg Tau:", this));
-  avgTauSpin = new QDoubleSpinBox(this);
-  avgTauSpin->setDecimals(3);
-  avgTauSpin->setRange(0.0, 2.0);
-  avgTauSpin->setSingleStep(0.05);
-  avgTauSpin->setValue(0.20); // default 200 ms
-  avgTauSpin->setSuffix(" s");
-  thLayout->addWidget(avgTauSpin);
-
   // Place status text above the control row
   layout->addWidget(triggerStatusLabel);
   layout->addLayout(thLayout);
@@ -362,6 +363,13 @@ MainWindow::MainWindow(QWidget *parent)
           &SpectrumWidget::pushData, Qt::QueuedConnection);
   connect(resetPeaksBtn, &QPushButton::clicked, spectrum,
           &SpectrumWidget::resetPeaks);
+  connect(infoButton, &QPushButton::clicked, this, [this]() {
+    if (!infoDialog)
+      infoDialog = new InfoDialog(this);
+    infoDialog->show();
+    infoDialog->raise();
+    infoDialog->activateWindow();
+  });
   connect(startButton, &QPushButton::clicked, this, &MainWindow::onStart);
   connect(unlockButton, &QPushButton::clicked, this,
           &MainWindow::onStateUpdate);

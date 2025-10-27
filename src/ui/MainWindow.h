@@ -3,6 +3,7 @@
 #include "../core/SDRReceiver.h"
 #include "WaterfallWidget.h"
 #include "SpectrumWidget.h"
+#include "componenets/InfoDialog.h"
 #include <QDoubleSpinBox>
 #include <QEvent>
 #include <QLabel>
@@ -53,6 +54,7 @@ private:
   QPushButton *startButton;
   QPushButton *unlockButton;
   QPushButton *exitButton;
+  QPushButton *infoButton;
   QPushButton *zoomOutButton;
   QPushButton *zoomInButton;
   QSlider *zoomSlider;
@@ -71,6 +73,7 @@ private:
   QComboBox *detectorModeCombo;
   QDoubleSpinBox *dwellSpin;
   QDoubleSpinBox *avgTauSpin;
+  InfoDialog *infoDialog{nullptr};
 
   SDRReceiver *receiver;
   bool running;

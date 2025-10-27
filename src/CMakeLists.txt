@@ -5,6 +5,7 @@ add_executable(duality_rf
     ui/MainWindow.cpp
     ui/WaterfallWidget.cpp
     ui/SpectrumWidget.cpp
+    ui/componenets/InfoDialog.cpp
     core/SDRManager.cpp
     core/SDRReceiver.cpp
     resources.qrc
