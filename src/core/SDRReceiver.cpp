@@ -1,9 +1,10 @@
 
 #include "SDRReceiver.h"
-#include <QMetaType>
-#include <QDir>
 #include <QDateTime>
+#include <QCoreApplication>
 #include <QDebug>
+#include <QDir>
+#include <QMetaType>
 #include <SoapySDR/Device.hpp>
 #include <SoapySDR/Formats.h>
 #include <algorithm>
@@ -11,8 +12,8 @@
 #include <cmath>
 #include <complex>
 #include <fftw3.h>
-#include <vector>
 #include <math.h>
+#include <vector>
 
 class SDRReceiver::Worker : public QObject {
   Q_OBJECT
@@ -34,13 +35,28 @@ public slots:
       try {
         dev->setGainMode(SOAPY_SDR_RX, 0, false);
         // Disable any digital/tuner AGC settings some RTL stacks expose
-        try { dev->writeSetting("rtl_agc", "false"); } catch (...) {}
-        try { dev->writeSetting("tuner_agc", "false"); } catch (...) {}
+        try {
+          dev->writeSetting("rtl_agc", "false");
+        } catch (...) {
+        }
+        try {
+          dev->writeSetting("tuner_agc", "false");
+        } catch (...) {
+        }
         // Try specific element names commonly used by RTL-SDR
-        try { dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb); } catch (...) {}
-        try { dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb); } catch (...) {}
+        try {
+          dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb);
+        } catch (...) {
+        }
+        try {
+          dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb);
+        } catch (...) {
+        }
         // Fallback to aggregate
-        try { dev->setGain(SOAPY_SDR_RX, 0, gainDb); } catch (...) {}
+        try {
+          dev->setGain(SOAPY_SDR_RX, 0, gainDb);
+        } catch (...) {
+        }
       } catch (...) {
       }
     }
@@ -67,7 +83,7 @@ public slots:
 
   void armCapture(double preSec, double postSec) {
     qInfo() << "[RX] Arm capture pre(s)=" << preSec << "post(s)=" << postSec
-            << "rate=" << rate << "freq(MHz)=" << freqHz/1e6;
+            << "rate=" << rate << "freq(MHz)=" << freqHz / 1e6;
     armed.store(true, std::memory_order_release);
     inCapture.store(false, std::memory_order_release);
     preSeconds = std::max(0.0, preSec);
@@ -138,7 +154,9 @@ public slots:
       window.resize(N);
       double sumW = 0.0;
       for (int i = 0; i < N; ++i) {
-        float w = 0.5f * (1.0f - std::cos(2.0f * float(M_PI) * float(i) / float(N - 1)));
+        float w =
+            0.5f *
+            (1.0f - std::cos(2.0f * float(M_PI) * float(i) / float(N - 1)));
         window[i] = w;
         sumW += w;
       }
@@ -149,6 +167,9 @@ public slots:
     const float alpha = 0.4f; // smoothing factor, lower = more smoothing
 
     while (running) {
+      // Allow queued invocations (arm/cancel/threshold/span/mode/etc.)
+      // to be processed while this long-running loop is active.
+      QCoreApplication::processEvents();
       if (QThread::currentThread()->isInterruptionRequested())
         running = false;
       if (!dev)
@@ -158,8 +179,8 @@ public slots:
         continue;
       }
 
-      int desired =
-          std::clamp(requestedFftSize.load(std::memory_order_acquire), 512, 8192);
+      int desired = std::clamp(requestedFftSize.load(std::memory_order_acquire),
+                               512, 8192);
       if (desired != activeFftSize) {
         activeFftSize = desired;
         buff.assign(activeFftSize, std::complex<float>{});
@@ -190,11 +211,14 @@ public slots:
 
       QVector<float> amps(activeFftSize);
       const float invN = 1.0f / float(activeFftSize);
-      const float ampScale = invN / std::max(coherentGain, 1e-9f); // normalize FFT and window coherent gain
+      const float ampScale =
+          invN / std::max(coherentGain,
+                          1e-9f); // normalize FFT and window coherent gain
       for (int i = 0; i < activeFftSize; ++i) {
         float re = out[i][0] * ampScale;
         float im = out[i][1] * ampScale;
-        float a = std::sqrt(re * re + im * im); // amplitude relative to full-scale
+        float a =
+            std::sqrt(re * re + im * im); // amplitude relative to full-scale
         // temporal smoothing in amplitude domain
         float s = alpha * a + (1.0f - alpha) * prevAmp[i];
         prevAmp[i] = s;
@@ -219,7 +243,8 @@ public slots:
         // 1) maintain 1s prebuffer ring
         if (preBufferCap > 0) {
           for (int i = 0; i < ret; ++i) {
-            if (preBuffer.empty()) break; // safety
+            if (preBuffer.empty())
+              break; // safety
             preBuffer[static_cast<size_t>(preHead)] = buff[i];
             preHead = (preHead + 1) % preBufferCap;
             if (preFilled < preBufferCap)
@@ -228,9 +253,11 @@ public slots:
         }
         totalSamplesSinceArm += static_cast<uint64_t>(ret);
 
-        // 2) detect activity near RX center within ~±100 kHz (or at least ±2 bins)
+        // 2) detect activity near RX center within ~±100 kHz (or at least ±2
+        // bins)
         const int half = activeFftSize / 2;
-        double binHz = (activeFftSize > 0) ? (rate / double(activeFftSize)) : 0.0;
+        double binHz =
+            (activeFftSize > 0) ? (rate / double(activeFftSize)) : 0.0;
         int winBins = 2;
         if (binHz > 0.0) {
           double spanHz = captureSpanHalfHz.load(std::memory_order_acquire);
@@ -253,11 +280,13 @@ public slots:
           double alphaAvg = 0.0;
           if (dtSec > 0.0 && avgTauSeconds > 0.0)
             alphaAvg = 1.0 - std::exp(-dtSec / avgTauSeconds);
-          centerAvgLin = (1.0 - alphaAvg) * centerAvgLin + alphaAvg * double(centerMax);
+          centerAvgLin =
+              (1.0 - alphaAvg) * centerAvgLin + alphaAvg * double(centerMax);
           centerDb = 20.0 * std::log10(std::max(centerAvgLin, double(eps)));
         } else {
           // Peak detector (instantaneous)
-          centerDb = 20.0 * std::log10(std::max(double(centerMax), double(eps)));
+          centerDb =
+              20.0 * std::log10(std::max(double(centerMax), double(eps)));
         }
         const double thrDb = triggerThresholdDb.load(std::memory_order_acquire);
         const bool aboveAvg = (centerDb >= thrDb);
@@ -274,20 +303,22 @@ public slots:
           aboveStreakSamples = 0;
 
         // notify trigger status based on averaged value
-        emit triggerStatus(true, inCapture.load(std::memory_order_acquire), centerDb, thrDb, aboveAvg);
+        emit triggerStatus(true, inCapture.load(std::memory_order_acquire),
+                           centerDb, thrDb, aboveAvg);
         // periodic debug log while armed
         logSamplesAccum += static_cast<uint64_t>(ret);
-        const uint64_t logEvery = static_cast<uint64_t>(std::llround(rate * 0.5));
+        const uint64_t logEvery =
+            static_cast<uint64_t>(std::llround(rate * 0.5));
         if (logSamplesAccum >= std::max<uint64_t>(logEvery, 1)) {
-          qInfo() << "[RX] Armed center(dB)=" << centerDb
-                  << "thr(dB)=" << thrDb
+          qInfo() << "[RX] Armed center(dB)=" << centerDb << "thr(dB)=" << thrDb
                   << "above=" << aboveAvg
                   << "capturing=" << inCapture.load(std::memory_order_acquire);
           logSamplesAccum = 0;
         }
 
         if (!inCapture.load(std::memory_order_acquire)) {
-          uint64_t needAbove = static_cast<uint64_t>(std::llround(rate * dwellSeconds));
+          uint64_t needAbove =
+              static_cast<uint64_t>(std::llround(rate * dwellSeconds));
           if (detectorMode.load(std::memory_order_acquire) == 1) {
             // Peak detector: require just one block above
             needAbove = std::max<uint64_t>(ret, 1);
@@ -300,8 +331,10 @@ public slots:
                     << ", fftSize=" << activeFftSize << ")";
             if (preFilled > 0 && !preBuffer.empty()) {
               uint64_t count = preFilled;
-              uint64_t head = preHead; // points to oldest position to be overwritten next
-              // oldest sample is at head when full; when partially filled, oldest at 0
+              uint64_t head =
+                  preHead; // points to oldest position to be overwritten next
+              // oldest sample is at head when full; when partially filled,
+              // oldest at 0
               if (preFilled == preBufferCap) {
                 // full ring: start from head to end, then 0 to head-1
                 for (uint64_t i = 0; i < preBufferCap; ++i) {
@@ -310,21 +343,26 @@ public slots:
                 }
               } else {
                 // not full yet: take 0..preFilled-1
-                captureBuffer.insert(captureBuffer.end(), preBuffer.begin(), preBuffer.begin() + static_cast<long>(preFilled));
+                captureBuffer.insert(captureBuffer.end(), preBuffer.begin(),
+                                     preBuffer.begin() +
+                                         static_cast<long>(preFilled));
               }
             }
             // include current chunk
-            captureBuffer.insert(captureBuffer.end(), buff.begin(), buff.begin() + ret);
+            captureBuffer.insert(captureBuffer.end(), buff.begin(),
+                                 buff.begin() + ret);
             belowSamples = 0;
           }
         } else {
           // already capturing, keep appending
-          captureBuffer.insert(captureBuffer.end(), buff.begin(), buff.begin() + ret);
+          captureBuffer.insert(captureBuffer.end(), buff.begin(),
+                               buff.begin() + ret);
           if (aboveAvg) {
             belowSamples = 0;
           } else {
             belowSamples += static_cast<uint64_t>(ret);
-            const uint64_t needPost = static_cast<uint64_t>(std::llround(rate * postSeconds));
+            const uint64_t needPost =
+                static_cast<uint64_t>(std::llround(rate * postSeconds));
             if (belowSamples >= needPost) {
               // finalize: write buffer to file
               QString outPath = makeCapturePath();
@@ -332,8 +370,10 @@ public slots:
                 QFile out(outPath);
                 if (out.open(QIODevice::WriteOnly)) {
                   if (!captureBuffer.empty()) {
-                    out.write(reinterpret_cast<const char *>(captureBuffer.data()),
-                              qint64(captureBuffer.size() * sizeof(std::complex<float>)));
+                    out.write(
+                        reinterpret_cast<const char *>(captureBuffer.data()),
+                        qint64(captureBuffer.size() *
+                               sizeof(std::complex<float>)));
                   }
                   out.close();
                 }
@@ -449,13 +489,28 @@ private:
     dev->setSampleRate(SOAPY_SDR_RX, 0, rate);
     dev->setFrequency(SOAPY_SDR_RX, 0, freqHz);
     dev->setGainMode(SOAPY_SDR_RX, 0, false);
-    try { dev->writeSetting("rtl_agc", "false"); } catch (...) {}
-    try { dev->writeSetting("tuner_agc", "false"); } catch (...) {}
+    try {
+      dev->writeSetting("rtl_agc", "false");
+    } catch (...) {
+    }
+    try {
+      dev->writeSetting("tuner_agc", "false");
+    } catch (...) {
+    }
     // Try specific and aggregate gain controls to cover driver differences
-    try { dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb); } catch (...) {}
-    try { dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb); } catch (...) {}
-    try { dev->setGain(SOAPY_SDR_RX, 0, gainDb); } catch (...) {}
-    qInfo() << "[RX] Applied tuning" << "freq(MHz)=" << freqHz/1e6
+    try {
+      dev->setGain(SOAPY_SDR_RX, 0, "LNA", gainDb);
+    } catch (...) {
+    }
+    try {
+      dev->setGain(SOAPY_SDR_RX, 0, "TUNER", gainDb);
+    } catch (...) {
+    }
+    try {
+      dev->setGain(SOAPY_SDR_RX, 0, gainDb);
+    } catch (...) {
+    }
+    qInfo() << "[RX] Applied tuning" << "freq(MHz)=" << freqHz / 1e6
             << "rate=" << rate << "gain(dB)=" << gainDb;
   }
   void closeDevice() {
@@ -499,15 +554,14 @@ private:
   std::atomic<double> triggerThresholdDb{-30.0};
   std::atomic<double> captureSpanHalfHz{100000.0};
   std::atomic<int> detectorMode{0}; // 0 averaged, 1 peak
-  double preSeconds{1.0};
-  double postSeconds{1.0};
-  double dwellSeconds{0.10};
+  double preSeconds{0.2};
+  double postSeconds{0.2};
+  double dwellSeconds{0.02};
   // Slightly quicker response to short packets
   // (can be adjusted via code if needed)
   // NOTE: this is the default value; logic uses this to compute required
   // samples above threshold before starting capture.
-  
-  
+
   double avgTauSeconds{0.20};
   uint64_t belowSamples{0};
   uint64_t totalSamplesSinceArm{0};
@@ -548,7 +602,8 @@ private:
 signals:
   void newFFTData(QVector<float> data);
   void captureCompleted(QString filePath);
-  void triggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above);
+  void triggerStatus(bool armed, bool capturing, double centerDb,
+                     double thresholdDb, bool above);
 };
 
 SDRReceiver::SDRReceiver(QObject *parent) : QObject(parent) {
@@ -573,8 +628,8 @@ void SDRReceiver::startStream(double freqMHz, double sampleRate) {
 
   connect(worker, &Worker::newFFTData, this, &SDRReceiver::newFFTData,
           Qt::QueuedConnection);
-  connect(worker, &Worker::captureCompleted, this, &SDRReceiver::captureCompleted,
-          Qt::QueuedConnection);
+  connect(worker, &Worker::captureCompleted, this,
+          &SDRReceiver::captureCompleted, Qt::QueuedConnection);
   connect(worker, &Worker::triggerStatus, this, &SDRReceiver::triggerStatus,
           Qt::QueuedConnection);
   connect(thread, &QThread::started, [=]() {
@@ -660,15 +715,15 @@ void SDRReceiver::setTriggerThresholdDb(double thresholdDb) {
 
 void SDRReceiver::setCaptureSpanHz(double halfSpanHz) {
   if (worker) {
-    QMetaObject::invokeMethod(worker, "setCaptureSpanHzSlot", Qt::QueuedConnection,
-                              Q_ARG(double, halfSpanHz));
+    QMetaObject::invokeMethod(worker, "setCaptureSpanHzSlot",
+                              Qt::QueuedConnection, Q_ARG(double, halfSpanHz));
   }
 }
 
 void SDRReceiver::setDetectorMode(int mode) {
   if (worker) {
-    QMetaObject::invokeMethod(worker, "setDetectorModeSlot", Qt::QueuedConnection,
-                              Q_ARG(int, mode));
+    QMetaObject::invokeMethod(worker, "setDetectorModeSlot",
+                              Qt::QueuedConnection, Q_ARG(int, mode));
   }
 }
 
@@ -676,7 +731,8 @@ void SDRReceiver::armTriggeredCapture(double preSeconds, double postSeconds) {
   if (!streaming || !worker)
     return;
   QMetaObject::invokeMethod(worker, "armCapture", Qt::QueuedConnection,
-                            Q_ARG(double, preSeconds), Q_ARG(double, postSeconds));
+                            Q_ARG(double, preSeconds),
+                            Q_ARG(double, postSeconds));
 }
 
 void SDRReceiver::cancelTriggeredCapture() {

@@ -1,8 +1,8 @@
 
 #include "MainWindow.h"
 #include <QApplication>
-#include <QDebug>
 #include <QCloseEvent>
+#include <QDebug>
 #include <QDir>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -311,8 +311,8 @@ MainWindow::MainWindow(QWidget *parent)
   thLayout->addSpacing(16);
   thLayout->addWidget(new QLabel("Detector:", this));
   detectorModeCombo = new QComboBox(this);
-  detectorModeCombo->addItem("Averaged"); // index 0
   detectorModeCombo->addItem("Peak");     // index 1
+  detectorModeCombo->addItem("Averaged"); // index 0
   detectorModeCombo->setCurrentIndex(0);
   detectorModeCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
   detectorModeCombo->setMinimumContentsLength(6);
@@ -337,7 +337,8 @@ MainWindow::MainWindow(QWidget *parent)
           &WaterfallWidget::pushData, Qt::QueuedConnection);
   connect(receiver, &SDRReceiver::newFFTData, spectrum,
           &SpectrumWidget::pushData, Qt::QueuedConnection);
-  connect(resetPeaksBtn, &QPushButton::clicked, spectrum, &SpectrumWidget::resetPeaks);
+  connect(resetPeaksBtn, &QPushButton::clicked, spectrum,
+          &SpectrumWidget::resetPeaks);
   connect(startButton, &QPushButton::clicked, this, &MainWindow::onStart);
   connect(unlockButton, &QPushButton::clicked, this,
           &MainWindow::onStateUpdate);
@@ -359,7 +360,8 @@ MainWindow::MainWindow(QWidget *parent)
   connect(zoomOutButton, &QPushButton::clicked, this, &MainWindow::onZoomOut);
   connect(zoomInButton, &QPushButton::clicked, this, &MainWindow::onZoomIn);
   connect(gainSlider, &QSlider::valueChanged, this, &MainWindow::onGainChanged);
-  connect(thresholdSlider, &QSlider::valueChanged, this, &MainWindow::onThresholdChanged);
+  connect(thresholdSlider, &QSlider::valueChanged, this,
+          &MainWindow::onThresholdChanged);
   connect(sampleRateCombo, qOverload<int>(&QComboBox::currentIndexChanged),
           this, &MainWindow::onSampleRateChanged);
   connect(spanSlider, &QSlider::valueChanged, this, &MainWindow::onSpanChanged);
@@ -378,10 +380,11 @@ MainWindow::MainWindow(QWidget *parent)
   if (receiver)
     receiver->setDetectorMode(detectorModeCombo->currentIndex());
   qInfo() << "[UI] Initialized with RX(MHz)=" << rxFreq->value()
-          << "TX(MHz)=" << txFreq->value()
-          << "SR(Hz)=" << sampleRateHz;
-  connect(receiver, &SDRReceiver::captureCompleted, this, &MainWindow::onCaptureCompleted);
-  connect(receiver, &SDRReceiver::triggerStatus, this, &MainWindow::onTriggerStatus);
+          << "TX(MHz)=" << txFreq->value() << "SR(Hz)=" << sampleRateHz;
+  connect(receiver, &SDRReceiver::captureCompleted, this,
+          &MainWindow::onCaptureCompleted);
+  connect(receiver, &SDRReceiver::triggerStatus, this,
+          &MainWindow::onTriggerStatus);
 }
 
 void MainWindow::startWaterfall() {
@@ -460,7 +463,8 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
   qInfo() << "[UI] Capture completed ->" << filePath;
 }
 
-void MainWindow::onTriggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above) {
+void MainWindow::onTriggerStatus(bool armed, bool capturing, double centerDb,
+                                 double thresholdDb, bool above) {
   Q_UNUSED(capturing);
   if (!armed) {
     triggerStatusLabel->setText("Status: Idle");
@@ -477,8 +481,7 @@ void MainWindow::onTriggerStatus(bool armed, bool capturing, double centerDb, do
           .arg(mode)
           .arg(centerDb, 0, 'f', 1)
           .arg(thresholdDb, 0, 'f', 0));
-  qInfo() << "[UI] Trigger status:" << state
-          << "center(dB)=" << centerDb
+  qInfo() << "[UI] Trigger status:" << state << "center(dB)=" << centerDb
           << "thr(dB)=" << thresholdDb;
   if (above) {
     triggerStatusLabel->setStyleSheet("color: #80ff80;");

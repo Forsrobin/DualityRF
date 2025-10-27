@@ -21,7 +21,7 @@ public:
   void setCaptureSpanHz(double halfSpanHz); // detection half-span around RX
   // 0 = Averaged detector, 1 = Peak detector
   void setDetectorMode(int mode);
-  void armTriggeredCapture(double preSeconds = 1.0, double postSeconds = 1.0);
+  void armTriggeredCapture(double preSeconds = 0.2, double postSeconds = 0.2);
   void cancelTriggeredCapture();
 
 public slots:
@@ -32,7 +32,8 @@ public slots:
 signals:
   void newFFTData(QVector<float> data);
   void captureCompleted(QString filePath);
-  void triggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above);
+  void triggerStatus(bool armed, bool capturing, double centerDb,
+                     double thresholdDb, bool above);
 
 private:
   class Worker;
