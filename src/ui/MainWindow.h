@@ -33,6 +33,7 @@ private slots:
   void onGainChanged(int sliderValue);
   void onSampleRateChanged(int index);
   void onThresholdChanged(int sliderValue);
+  void onSpanChanged(int sliderValue);
   void onCaptureCompleted(const QString &filePath);
   void onTriggerStatus(bool armed, bool capturing, double centerDb, double thresholdDb, bool above);
 
@@ -55,6 +56,8 @@ private:
   QLabel *zoomLabel;
   QSlider *gainSlider;
   QLabel *gainLabel;
+  QSlider *spanSlider;
+  QLabel *spanLabel;
   QComboBox *sampleRateCombo;
   SpectrumWidget *spectrum;
   QLabel *captureStatus1;

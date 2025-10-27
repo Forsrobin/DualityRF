@@ -263,6 +263,18 @@ MainWindow::MainWindow(QWidget *parent)
   thLayout->addWidget(new QLabel("Capture Threshold:", this));
   thLayout->addWidget(thresholdSlider, 1);
   thLayout->addWidget(thresholdLabel);
+  // Span slider: ±Hz around RX used for detection and visualization
+  spanSlider = new QSlider(Qt::Horizontal, this);
+  spanSlider->setRange(1, 400); // 1..400 kHz
+  spanSlider->setSingleStep(1);
+  spanSlider->setPageStep(10);
+  spanSlider->setValue(100); // default ±100 kHz
+  spanSlider->setFocusPolicy(Qt::NoFocus);
+  spanLabel = new QLabel("Span: ±100 kHz", this);
+  thLayout->addSpacing(16);
+  thLayout->addWidget(new QLabel("Capture Span:", this));
+  thLayout->addWidget(spanSlider, 1);
+  thLayout->addWidget(spanLabel);
   thLayout->addSpacing(16);
   thLayout->addWidget(triggerStatusLabel);
   layout->addLayout(thLayout);
@@ -304,10 +316,15 @@ MainWindow::MainWindow(QWidget *parent)
   connect(thresholdSlider, &QSlider::valueChanged, this, &MainWindow::onThresholdChanged);
   connect(sampleRateCombo, qOverload<int>(&QComboBox::currentIndexChanged),
           this, &MainWindow::onSampleRateChanged);
+  connect(spanSlider, &QSlider::valueChanged, this, &MainWindow::onSpanChanged);
 
   // initialize threshold in receiver
   if (receiver)
     receiver->setTriggerThresholdDb(-40.0);
+  // Initialize span (kHz -> Hz)
+  if (receiver)
+    receiver->setCaptureSpanHz(spanSlider->value() * 1000.0);
+  waterfall->setCaptureSpanHz(spanSlider->value() * 1000.0);
   qInfo() << "[UI] Initialized with RX(MHz)=" << rxFreq->value()
           << "TX(MHz)=" << txFreq->value()
           << "SR(Hz)=" << sampleRateHz;
@@ -360,6 +377,18 @@ void MainWindow::onThresholdChanged(int sliderValue) {
   if (receiver)
     receiver->setTriggerThresholdDb(db);
   qInfo() << "[UI] Threshold set to (dB)=" << db;
+}
+
+void MainWindow::onSpanChanged(int sliderValue) {
+  // slider in kHz units
+  int kHz = std::clamp(sliderValue, 1, 400);
+  double halfHz = kHz * 1000.0;
+  spanLabel->setText(QString("Span: ±%1 kHz").arg(kHz));
+  if (receiver)
+    receiver->setCaptureSpanHz(halfHz);
+  if (waterfall)
+    waterfall->setCaptureSpanHz(halfHz);
+  qInfo() << "[UI] Capture span set to ±" << kHz << "kHz";
 }
 
 void MainWindow::onCaptureCompleted(const QString &filePath) {

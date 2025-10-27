@@ -52,6 +52,13 @@ public slots:
     qInfo() << "[RX] Set trigger threshold (dB)=" << db;
   }
 
+  void setCaptureSpan(double halfSpanHz) {
+    if (halfSpanHz < 0.0)
+      halfSpanHz = 0.0;
+    captureSpanHalfHz.store(halfSpanHz, std::memory_order_release);
+    qInfo() << "[RX] Set capture span half-width (Hz)=" << halfSpanHz;
+  }
+
   void armCapture(double preSec, double postSec) {
     qInfo() << "[RX] Arm capture pre(s)=" << preSec << "post(s)=" << postSec
             << "rate=" << rate << "freq(MHz)=" << freqHz/1e6;
@@ -220,7 +227,10 @@ public slots:
         double binHz = (activeFftSize > 0) ? (rate / double(activeFftSize)) : 0.0;
         int winBins = 2;
         if (binHz > 0.0) {
-          winBins = std::max(2, int(std::round(100000.0 / binHz))); // ~±100 kHz
+          double spanHz = captureSpanHalfHz.load(std::memory_order_acquire);
+          if (spanHz <= 0.0)
+            spanHz = 100000.0; // default ±100 kHz
+          winBins = std::max(2, int(std::ceil(spanHz / binHz)));
           winBins = std::min(winBins, half - 1);
         }
         float centerMax = 0.0f;
@@ -252,6 +262,16 @@ public slots:
 
         // notify trigger status based on averaged value
         emit triggerStatus(true, inCapture.load(std::memory_order_acquire), centerDb, thrDb, aboveAvg);
+        // periodic debug log while armed
+        logSamplesAccum += static_cast<uint64_t>(ret);
+        const uint64_t logEvery = static_cast<uint64_t>(std::llround(rate * 0.5));
+        if (logSamplesAccum >= std::max<uint64_t>(logEvery, 1)) {
+          qInfo() << "[RX] Armed center(dB)=" << centerDb
+                  << "thr(dB)=" << thrDb
+                  << "above=" << aboveAvg
+                  << "capturing=" << inCapture.load(std::memory_order_acquire);
+          logSamplesAccum = 0;
+        }
 
         if (!inCapture.load(std::memory_order_acquire)) {
           const uint64_t needAbove = static_cast<uint64_t>(std::llround(rate * dwellSeconds));
@@ -371,6 +391,7 @@ public slots:
     int clamped = std::clamp(size, 512, 8192);
     requestedFftSize.store(clamped, std::memory_order_release);
   }
+  void setCaptureSpanHzSlot(double halfSpanHz) { setCaptureSpan(halfSpanHz); }
 
   // Thread-safe: may be called from any thread
   void configureImmediate(double freqMHz, double sampleRate) {
@@ -459,6 +480,7 @@ private:
   std::atomic<bool> armed{false};
   std::atomic<bool> inCapture{false};
   std::atomic<double> triggerThresholdDb{-30.0};
+  std::atomic<double> captureSpanHalfHz{100000.0};
   double preSeconds{1.0};
   double postSeconds{1.0};
   double dwellSeconds{0.10};
@@ -471,6 +493,7 @@ private:
   double avgTauSeconds{0.20};
   uint64_t belowSamples{0};
   uint64_t totalSamplesSinceArm{0};
+  uint64_t logSamplesAccum{0};
   double centerAvgLin{0.0};
   uint64_t aboveStreakSamples{0};
 
@@ -614,6 +637,13 @@ void SDRReceiver::setTriggerThresholdDb(double thresholdDb) {
   if (worker) {
     QMetaObject::invokeMethod(worker, "setThresholdDb", Qt::QueuedConnection,
                               Q_ARG(double, thresholdDb));
+  }
+}
+
+void SDRReceiver::setCaptureSpanHz(double halfSpanHz) {
+  if (worker) {
+    QMetaObject::invokeMethod(worker, "setCaptureSpanHzSlot", Qt::QueuedConnection,
+                              Q_ARG(double, halfSpanHz));
   }
 }
 

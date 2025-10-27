@@ -18,6 +18,7 @@ public:
   void setGainDb(double gainDb);
   void setSampleRate(double sampleRate);
   void setTriggerThresholdDb(double thresholdDb);
+  void setCaptureSpanHz(double halfSpanHz); // detection half-span around RX
   void armTriggeredCapture(double preSeconds = 1.0, double postSeconds = 1.0);
   void cancelTriggeredCapture();
 

@@ -95,6 +95,13 @@ void WaterfallWidget::setRxTxFrequencies(double rxHz, double txHz) {
   update();
 }
 
+void WaterfallWidget::setCaptureSpanHz(double halfSpanHz) {
+  if (halfSpanHz < 0.0)
+    halfSpanHz = 0.0;
+  captureSpanHalfHz = halfSpanHz;
+  update();
+}
+
 void WaterfallWidget::reset() {
   img = QImage();
   nextRow = 0;
@@ -162,7 +169,7 @@ void WaterfallWidget::drawFrequencyMarkers(QPainter &painter,
   painter.setFont(labelFont);
   QFontMetrics metrics(labelFont);
 
-  // RX/TX guide lines
+  // RX/TX guide lines and capture span
   auto drawGuide = [&](double freq, const QColor &color, const QString &label) {
     if (freq <= 0.0)
       return;
@@ -195,6 +202,41 @@ void WaterfallWidget::drawFrequencyMarkers(QPainter &painter,
 
   drawGuide(rxFrequencyHz, QColor(255, 255, 0), QStringLiteral("RX"));
   drawGuide(txFrequencyHz, QColor(255, 80, 80), QStringLiteral("TX"));
+
+  // Capture span visualization around RX: ±captureSpanHalfHz
+  if (rxFrequencyHz > 0.0 && captureSpanHalfHz > 0.0) {
+    double span = sampleRateHz / zoomFactor();
+    double startFreq = centerFrequencyHz - span / 2.0;
+    double invSpan = 1.0 / span;
+    int left = targetRect.left();
+    int width = targetRect.width();
+    int top = targetRect.top();
+    int bottom = targetRect.bottom();
+
+    double fL = rxFrequencyHz - captureSpanHalfHz;
+    double fR = rxFrequencyHz + captureSpanHalfHz;
+    double rL = (fL - startFreq) * invSpan;
+    double rR = (fR - startFreq) * invSpan;
+    if (!(rL < 0.0 && rR < 0.0) && !(rL > 1.0 && rR > 1.0)) {
+      int xL = left + static_cast<int>(std::round(std::clamp(rL, 0.0, 1.0) * width));
+      int xR = left + static_cast<int>(std::round(std::clamp(rR, 0.0, 1.0) * width));
+      if (xL > xR)
+        std::swap(xL, xR);
+      // Draw boundary lines
+      QPen spanPen(QColor(0, 255, 0));
+      spanPen.setWidth(2);
+      painter.setPen(spanPen);
+      painter.drawLine(xL, top, xL, bottom);
+      painter.drawLine(xR, top, xR, bottom);
+      // Fill translucent
+      painter.save();
+      painter.setPen(Qt::NoPen);
+      painter.setBrush(QColor(0, 255, 0, 40));
+      painter.drawRect(QRect(QPoint(xL, top), QPoint(xR, bottom)));
+      painter.restore();
+    }
+    painter.setPen(gridPen);
+  }
 
   painter.restore();
 }
