@@ -572,6 +572,12 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
     // First capture finished, update status and immediately arm for capture 2
     capture1Done = true;
     captureStatus1->setText("Capture 1: CAPTURED");
+    // Compute output sample rate based on current span and decimation logic
+    double spanHalfHz = spanSlider->value() * 1000.0;
+    int D = std::max(1, int(std::floor(sampleRateHz / (2.0 * spanHalfHz))));
+    double outRate = sampleRateHz / double(D);
+    captureBox1->setFrequencyInfo(rxFreq->value() * 1e6, rxFreq->value() * 1e6,
+                                  outRate);
     captureBox1->loadFromFile(filePath);
     captureBox1->setCompleted(true);
     unlockButton->setEnabled(false);
@@ -593,6 +599,11 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
     // Second capture finished
     capture2Done = true;
     captureStatus2->setText("Capture 2: CAPTURED");
+    double spanHalfHz = spanSlider->value() * 1000.0;
+    int D = std::max(1, int(std::floor(sampleRateHz / (2.0 * spanHalfHz))));
+    double outRate = sampleRateHz / double(D);
+    captureBox2->setFrequencyInfo(rxFreq->value() * 1e6, rxFreq->value() * 1e6,
+                                  outRate);
     captureBox2->loadFromFile(filePath);
     captureBox2->setCompleted(true);
     running = false;
@@ -653,14 +664,20 @@ void MainWindow::onAvgTauChanged(double seconds) {
 
 void MainWindow::onResetCaptures() {
   qInfo() << "[UI] RESET clicked -> Clear captures & reset state";
-  // Stop any armed/capture state and return to idle
+  // 1) Stop preview threads first to avoid races with file deletion
+  if (captureBox1)
+    captureBox1->showEmpty();
+  if (captureBox2)
+    captureBox2->showEmpty();
+
+  // 2) Stop any armed/capture state and return to idle
   if (receiver) {
     receiver->cancelTriggeredCapture();
   }
   running = false;
   startButton->setText("START");
 
-  // Clear captures folder
+  // 3) Clear captures folder on disk
   {
     QDir capDir("captures");
     if (capDir.exists())
@@ -668,15 +685,11 @@ void MainWindow::onResetCaptures() {
     QDir().mkpath("captures");
   }
 
-  // Reset UI state
+  // 4) Reset UI state
   capture1Done = false;
   capture2Done = false;
   captureStatus1->setText("Capture 1: EMPTY");
   captureStatus2->setText("Capture 2: EMPTY");
-  if (captureBox1)
-    captureBox1->showEmpty();
-  if (captureBox2)
-    captureBox2->showEmpty();
   if (captureBox1)
     captureBox1->setCompleted(false);
   if (captureBox2)

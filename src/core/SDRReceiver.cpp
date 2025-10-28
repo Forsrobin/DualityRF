@@ -394,22 +394,95 @@ public slots:
             const uint64_t needPost =
                 static_cast<uint64_t>(std::llround(rate * postSeconds));
             if (belowSamples >= needPost) {
-              // finalize: write buffer to file
+              // finalize: band-limit to capture span and decimate to a
+              // narrower sample rate so the recording only contains the
+              // capture span bandwidth around RX.
+              // Compute decimation factor D such that outRate >=
+              // 2*captureSpanHalfHz * guard, where guard>1 for transition.
+              double spanHalf =
+                  captureSpanHalfHz.load(std::memory_order_acquire);
+              spanHalf = std::max(1.0, spanHalf);
+              // Choose decimation so outRate >= 2*spanHalf (complex Nyquist)
+              // and as close as possible to minimize extra bandwidth.
+              int D = 1;
+              if (rate > 0.0) {
+                D = std::max(1, int(std::floor(rate / (2.0 * spanHalf))));
+              }
+              double outRate = (D > 0) ? (rate / double(D)) : rate;
+              // Low-pass cutoff slightly below span edge and below Nyquist
+              double cutoff = std::min(spanHalf * 0.90, 0.45 * outRate);
+              // FIR length (odd)
+              const int NTaps = 129;
+
+              auto designLowpass = [&](double cutoffHz, double fs, int taps) {
+                std::vector<float> h;
+                h.resize(std::max(3, taps));
+                int M = int(h.size());
+                double fc = std::clamp(cutoffHz / fs, 1e-6, 0.49); // 0..0.5
+                int mid = (M - 1) / 2;
+                double sum = 0.0;
+                for (int n = 0; n < M; ++n) {
+                  double m = double(n - mid);
+                  double wnd = 0.42 - 0.5 * std::cos(2.0 * M_PI * n / (M - 1)) +
+                               0.08 * std::cos(4.0 * M_PI * n / (M - 1));
+                  double sinc;
+                  if (std::abs(m) < 1e-12)
+                    sinc = 1.0;
+                  else
+                    sinc = std::sin(2.0 * M_PI * fc * m) / (M_PI * m);
+                  double val = 2.0 * fc * sinc * wnd;
+                  h[n] = float(val);
+                  sum += val;
+                }
+                if (sum != 0.0) {
+                  for (auto &v : h)
+                    v = float(double(v) / sum);
+                }
+                return h;
+              };
+
+              auto decimateFIR = [&](const std::vector<std::complex<float>> &x,
+                                     const std::vector<float> &h, int Ddec) {
+                std::vector<std::complex<float>> y;
+                if (x.empty() || h.empty() || Ddec <= 0)
+                  return y;
+                int M = int(h.size());
+                int start = M - 1; // need M samples to start
+                for (int i = start; i < int(x.size()); i += Ddec) {
+                  std::complex<float> acc(0.0f, 0.0f);
+                  // Convolve reversed taps: x[i-k] * h[k]
+                  for (int k = 0; k < M; ++k) {
+                    int idx = i - k;
+                    if (idx < 0)
+                      break;
+                    acc += x[size_t(idx)] * h[size_t(k)];
+                  }
+                  y.push_back(acc);
+                }
+                return y;
+              };
+
+              std::vector<float> lpf = designLowpass(cutoff, rate, NTaps);
+              std::vector<std::complex<float>> reduced =
+                  decimateFIR(captureBuffer, lpf, std::max(1, D));
+
+              // Write result to disk
               QString outPath = makeCapturePath();
               if (!outPath.isEmpty()) {
                 QFile out(outPath);
                 if (out.open(QIODevice::WriteOnly)) {
-                  if (!captureBuffer.empty()) {
-                    out.write(
-                        reinterpret_cast<const char *>(captureBuffer.data()),
-                        qint64(captureBuffer.size() *
-                               sizeof(std::complex<float>)));
+                  if (!reduced.empty()) {
+                    out.write(reinterpret_cast<const char *>(reduced.data()),
+                              qint64(reduced.size() *
+                                     sizeof(std::complex<float>)));
                   }
                   out.close();
                 }
               }
               qInfo() << "[RX] Capture COMPLETE ->" << outPath
-                      << "samples=" << captureBuffer.size();
+                      << "samples(in)=" << captureBuffer.size()
+                      << "samples(out)=" << reduced.size() << "D=" << D
+                      << "outRate=" << outRate;
               // cleanup spooling temp
               if (spoolFile.isOpen())
                 spoolFile.close();

@@ -1,5 +1,6 @@
 #include "CapturePreviewWidget.h"
 #include "WaterfallWidget.h"
+#include "WaveformWidget.h"
 #include <QBoxLayout>
 #include <QFile>
 #include <QLabel>
@@ -14,9 +15,7 @@
 
 // ------------------------ CapturePreviewWorker ------------------------
 
-void CapturePreviewWorker::startPreview(const QString &path, double sampleRateHz,
-                                        double rxHz) {
-  Q_UNUSED(rxHz);
+void CapturePreviewWorker::startPreview(const QString &path, double sampleRateHz) {
   running.store(true, std::memory_order_release);
 
   QFile f(path);
@@ -25,68 +24,79 @@ void CapturePreviewWorker::startPreview(const QString &path, double sampleRateHz
     return;
   }
 
-  // FFT params similar to live pipeline
-  const int N = 4096;
-  std::vector<std::complex<float>> buff(N);
-  std::vector<float> window(N, 1.0f);
-  // Hann window
-  double sumW = 0.0;
-  for (int i = 0; i < N; ++i) {
-    float w = 0.5f * (1.0f - std::cos(2.0f * float(M_PI) * float(i) / float(N - 1)));
-    window[i] = w;
-    sumW += w;
+  // Compute a compact time waveform (amplitude envelope) once, no looping
+  qint64 totalBytes = f.size();
+  qint64 totalSamples = totalBytes / qint64(sizeof(std::complex<float>));
+  if (totalSamples <= 0) {
+    emit finished();
+    return;
   }
-  float coherentGain = float(sumW / double(N));
+  const int targetPoints = 1500; // resolution of the preview
+  int bins = std::min<qint64>(targetPoints, totalSamples);
+  QVector<float> env(bins, 0.0f);
 
-  fftwf_complex *in = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * N);
-  fftwf_complex *out = (fftwf_complex *)fftwf_malloc(sizeof(fftwf_complex) * N);
-  fftwf_plan plan = fftwf_plan_dft_1d(N, in, out, FFTW_FORWARD, FFTW_ESTIMATE);
-
-  const float invN = 1.0f / float(N);
-  const float ampScale = invN / std::max(coherentGain, 1e-9f);
-  // Determine a pacing interval based on sample rate, but faster than real-time
-  int sleepMs = 1; // default fast pace
-  if (sampleRateHz > 0.0) {
-    double frameSec = double(N) / sampleRateHz; // seconds per FFT window
-    // Speed up playback: quarter of real-time, but at least 1 ms
-    sleepMs = std::max(1, int(frameSec * 1000.0 * 0.25));
-  }
-
-  while (running.load(std::memory_order_acquire)) {
-    // read one block
-    qint64 need = qint64(N) * qint64(sizeof(std::complex<float>));
-    qint64 got = f.read(reinterpret_cast<char *>(buff.data()), need);
-    if (got < need)
+  // Aggregate max magnitude over contiguous chunks to fill env
+  qint64 chunk = 8192; // samples per read
+  std::vector<std::complex<float>> buff;
+  buff.resize(static_cast<size_t>(chunk));
+  qint64 processed = 0;
+  while (running.load(std::memory_order_acquire) && processed < totalSamples) {
+    qint64 toRead = std::min<qint64>(chunk, totalSamples - processed);
+    qint64 got = f.read(reinterpret_cast<char *>(buff.data()),
+                        toRead * qint64(sizeof(std::complex<float>)));
+    if (got <= 0)
       break;
-
-    // window + FFT
-    for (int i = 0; i < N; ++i) {
-      float w = window[i];
-      in[i][0] = buff[i].real() * w;
-      in[i][1] = buff[i].imag() * w;
+    qint64 ns = got / qint64(sizeof(std::complex<float>));
+    for (qint64 i = 0; i < ns; ++i) {
+      float re = buff[size_t(i)].real();
+      float im = buff[size_t(i)].imag();
+      float a = std::sqrt(re * re + im * im);
+      // Map sample index to preview bin
+      qint64 idx = processed + i;
+      int b = int((idx * bins) / totalSamples);
+      if (b < 0)
+        b = 0;
+      else if (b >= bins)
+        b = bins - 1;
+      env[b] = std::max(env[b], a);
     }
-    fftwf_execute(plan);
+    processed += ns;
+  }
+  f.close();
 
-    QVector<float> ampsShift(N);
-    std::vector<float> amps(N);
-    for (int i = 0; i < N; ++i) {
-      float re = out[i][0] * ampScale;
-      float im = out[i][1] * ampScale;
-      amps[i] = std::sqrt(re * re + im * im);
-    }
-    int half = N / 2;
-    for (int i = 0; i < N; ++i)
-      ampsShift[i] = amps[(i + half) % N];
-
-    emit frameReady(ampsShift);
-    // faster pacing for snappier preview
-    QThread::msleep(sleepMs);
+  // Normalize to 0..1
+  float mx = 1e-9f;
+  for (float v : env)
+    mx = std::max(mx, v);
+  if (mx > 0.0f) {
+    for (float &v : env)
+      v = std::min(1.0f, v / mx);
   }
 
-  fftwf_destroy_plan(plan);
-  fftwf_free(in);
-  fftwf_free(out);
-  f.close();
+  // Simple peak picking: local maxima, keep strongest up to limit
+  QVector<int> peaks;
+  for (int i = 1; i + 1 < env.size(); ++i) {
+    if (env[i] > env[i - 1] && env[i] > env[i + 1])
+      peaks.push_back(i);
+  }
+  // Reduce clutter: drop weak peaks
+  peaks.erase(std::remove_if(peaks.begin(), peaks.end(), [&](int i) {
+                 return env[i] < 0.2f; // keep only >= 20% of max
+               }),
+              peaks.end());
+  // Keep top N by amplitude
+  const int maxPeaks = 32;
+  std::stable_sort(peaks.begin(), peaks.end(), [&](int a, int b) {
+    return env[a] > env[b];
+  });
+  if (peaks.size() > maxPeaks)
+    peaks.resize(maxPeaks);
+  // Resort by position for drawing
+  std::sort(peaks.begin(), peaks.end());
+
+  double durationSec = (sampleRateHz > 0.0) ? (double(totalSamples) / sampleRateHz)
+                                            : 0.0;
+  emit waveformReady(env, durationSec, peaks);
   emit finished();
 }
 
@@ -118,10 +128,9 @@ CapturePreviewWidget::CapturePreviewWidget(const QString &title, QWidget *parent
     stack->addWidget(emptyLabel);
   }
   {
-    // page 1: mini waterfall
-    waterfall = new WaterfallWidget(this);
-    waterfall->setMinimumHeight(160);
-    stack->addWidget(waterfall);
+    // page 1: waveform preview
+    waveform = new WaveformWidget(this);
+    stack->addWidget(waveform);
   }
 
   auto *stackHolder = new QWidget(this);
@@ -133,58 +142,51 @@ CapturePreviewWidget::CapturePreviewWidget(const QString &title, QWidget *parent
   stack->setCurrentIndex(0);
 }
 
-CapturePreviewWidget::~CapturePreviewWidget() {
-  if (thread) {
-    if (worker)
-      worker->stop();
-    thread->quit();
-    thread->wait(1000);
-    delete thread;
-  }
-}
+CapturePreviewWidget::~CapturePreviewWidget() { showEmpty(); }
 
 void CapturePreviewWidget::setFrequencyInfo(double rxHz_, double centerHz_,
                                             double sampleRateHz_) {
   rxHz = rxHz_;
   centerHz = centerHz_;
   sampleRateHz = sampleRateHz_;
-  if (waterfall) {
-    waterfall->setFrequencyInfo(centerHz, sampleRateHz);
-    waterfall->setRxTxFrequencies(rxHz, 0.0);
-  }
+  // No-op for waveform visualization; keep for consistency
 }
 
 void CapturePreviewWidget::setCaptureSpanHz(double halfSpanHz) {
   spanHalfHz = halfSpanHz;
-  if (waterfall)
-    waterfall->setCaptureSpanHz(halfSpanHz);
+  // No visualization overlay for waveform preview
 }
 
 void CapturePreviewWidget::showEmpty() {
   // Stop any ongoing preview generation
   if (thread) {
-    if (worker)
+    if (worker) {
+      // Disconnect all to avoid callbacks during teardown
+      QObject::disconnect(worker, nullptr, nullptr, nullptr);
       worker->stop();
+    }
+    QObject::disconnect(thread, nullptr, nullptr, nullptr);
     thread->quit();
-    thread->wait(500);
+    // Wait longer to ensure worker exits cleanly
+    thread->wait(2000);
+    if (worker) {
+      delete worker;
+      worker = nullptr;
+    }
     delete thread;
     thread = nullptr;
-    worker = nullptr;
   }
-  if (waterfall)
-    waterfall->reset();
+  // clear
   if (stack)
     stack->setCurrentIndex(0);
   setCompleted(false);
 }
 
 void CapturePreviewWidget::loadFromFile(const QString &filePath) {
-  if (!waterfall)
-    return;
-  waterfall->reset();
-  waterfall->setFrequencyInfo(centerHz, sampleRateHz);
-  waterfall->setRxTxFrequencies(rxHz, 0.0);
-  waterfall->setCaptureSpanHz(spanHalfHz);
+  // proceed to load waveform from file
+  // reset waveform view
+  if (waveform)
+    waveform->setData(QVector<float>{}, 0.0, QVector<int>{});
 
   // Ensure any prior worker is stopped
   if (thread) {
@@ -203,16 +205,13 @@ void CapturePreviewWidget::loadFromFile(const QString &filePath) {
   QObject::connect(thread, &QThread::started, [this, filePath]() {
     QMetaObject::invokeMethod(worker, "startPreview", Qt::QueuedConnection,
                               Q_ARG(QString, filePath),
-                              Q_ARG(double, sampleRateHz), Q_ARG(double, rxHz));
+                              Q_ARG(double, sampleRateHz));
   });
-  QObject::connect(worker, &CapturePreviewWorker::frameReady, waterfall,
-                   &WaterfallWidget::pushData, Qt::QueuedConnection);
-  QObject::connect(worker, &CapturePreviewWorker::finished, this, [this]() {
-    if (thread) {
-      thread->quit();
-    }
-  });
-  QObject::connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+  QObject::connect(worker, &CapturePreviewWorker::waveformReady, waveform,
+                   &WaveformWidget::setData, Qt::QueuedConnection);
+  // When finished, quit the thread loop (safe even if already requested)
+  QObject::connect(worker, &CapturePreviewWorker::finished, thread,
+                   &QThread::quit);
 
   stack->setCurrentIndex(1);
   thread->start();

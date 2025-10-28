@@ -102,6 +102,13 @@ void WaterfallWidget::setCaptureSpanHz(double halfSpanHz) {
   update();
 }
 
+void WaterfallWidget::setShowCaptureSpan(bool show) {
+  if (showCaptureSpan != show) {
+    showCaptureSpan = show;
+    update();
+  }
+}
+
 void WaterfallWidget::reset() {
   img = QImage();
   nextRow = 0;
@@ -204,7 +211,7 @@ void WaterfallWidget::drawFrequencyMarkers(QPainter &painter,
   drawGuide(txFrequencyHz, QColor(255, 80, 80), QStringLiteral("TX"));
 
   // Capture span visualization around RX: ±captureSpanHalfHz
-  if (rxFrequencyHz > 0.0 && captureSpanHalfHz > 0.0) {
+  if (showCaptureSpan && rxFrequencyHz > 0.0 && captureSpanHalfHz > 0.0) {
     double span = sampleRateHz / zoomFactor();
     double startFreq = centerFrequencyHz - span / 2.0;
     double invSpan = 1.0 / span;

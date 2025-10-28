@@ -10,6 +10,7 @@
 #include <complex>
 
 class WaterfallWidget;
+class WaveformWidget;
 
 // Background worker that reads a CF32 file and emits FFT frames
 class CapturePreviewWorker : public QObject {
@@ -17,10 +18,11 @@ class CapturePreviewWorker : public QObject {
 public:
   explicit CapturePreviewWorker(QObject *parent = nullptr) : QObject(parent) {}
 public slots:
-  void startPreview(const QString &path, double sampleRateHz, double rxHz);
+  void startPreview(const QString &path, double sampleRateHz);
   void stop();
 signals:
-  void frameReady(QVector<float> data);
+  void waveformReady(QVector<float> data, double durationSec,
+                     QVector<int> peakIndices);
   void finished();
 private:
   std::atomic<bool> running{false};
@@ -45,7 +47,8 @@ private:
   QLabel *titleLabel{nullptr};
   QStackedLayout *stack{nullptr};
   QLabel *emptyLabel{nullptr};
-  WaterfallWidget *waterfall{nullptr};
+  // replaced mini waterfall with waveform
+  WaveformWidget *waveform{nullptr};
 
   // Preview thread + worker
   QThread *thread{nullptr};
