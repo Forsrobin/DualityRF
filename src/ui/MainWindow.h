@@ -79,4 +79,8 @@ private:
   bool running;
   bool waterfallActive;
   double sampleRateHz;
+
+  // Track sequential capture states
+  bool capture1Done{false};
+  bool capture2Done{false};
 };

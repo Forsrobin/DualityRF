@@ -119,6 +119,11 @@ MainWindow::MainWindow(QWidget *parent)
             border: 1px solid cyan;
             padding: 4px 12px;
         }
+        QPushButton:disabled {
+            background-color: #000808;
+            color: #004040;
+            border: 1px solid #003030;
+        }
         QPushButton:hover {
             background-color: #002020;
         }
@@ -130,6 +135,11 @@ MainWindow::MainWindow(QWidget *parent)
             color: #ff6060;
             border: 1px solid #ff6060;
             padding: 4px 16px;
+        }
+        QPushButton#ExitButton:disabled {
+            background-color: #1a0000;
+            color: #5a2b2b;
+            border: 1px solid #5a2b2b;
         }
         QPushButton#ExitButton:hover {
             background-color: #3a0000;
@@ -424,6 +434,16 @@ MainWindow::MainWindow(QWidget *parent)
           &MainWindow::onCaptureCompleted);
   connect(receiver, &SDRReceiver::triggerStatus, this,
           &MainWindow::onTriggerStatus);
+
+  // Clear any old captures at program start
+  {
+    QDir capDir("captures");
+    if (capDir.exists()) {
+      capDir.removeRecursively();
+    }
+    QDir().mkpath("captures");
+    qInfo() << "[UI] Cleared previous captures folder";
+  }
 }
 
 void MainWindow::startWaterfall() {
@@ -443,6 +463,8 @@ void MainWindow::onStart() {
     // Arm trigger capture: clear statuses and begin buffering
     captureStatus1->setText("Capture 1: EMPTY");
     captureStatus2->setText("Capture 2: EMPTY");
+    capture1Done = false;
+    capture2Done = false;
     running = true;
     startButton->setText("STOP");
     unlockButton->setEnabled(false);
@@ -459,6 +481,8 @@ void MainWindow::onStart() {
       receiver->cancelTriggeredCapture();
     captureStatus1->setText("Capture 1: EMPTY");
     captureStatus2->setText("Capture 2: EMPTY");
+    capture1Done = false;
+    capture2Done = false;
     unlockButton->setEnabled(false);
     triggerStatusLabel->setText("Status: Idle");
     triggerStatusLabel->setStyleSheet("");
@@ -492,14 +516,38 @@ void MainWindow::onSpanChanged(int sliderValue) {
 
 void MainWindow::onCaptureCompleted(const QString &filePath) {
   Q_UNUSED(filePath);
-  running = false;
-  startButton->setText("START");
-  captureStatus1->setText("Capture 1: CAPTURED");
-  // leave capture 2 as EMPTY for now
-  unlockButton->setEnabled(true);
-  triggerStatusLabel->setText("Status: Captured");
-  triggerStatusLabel->setStyleSheet("");
   qInfo() << "[UI] Capture completed ->" << filePath;
+
+  if (!capture1Done) {
+    // First capture finished, update status and immediately arm for capture 2
+    capture1Done = true;
+    captureStatus1->setText("Capture 1: CAPTURED");
+    unlockButton->setEnabled(false);
+    triggerStatusLabel->setText("Status: 1/2 captured • Re-armed");
+    triggerStatusLabel->setStyleSheet("");
+    // Keep running and re-arm for the second capture
+    if (receiver && running) {
+      receiver->armTriggeredCapture(1.0, 0.2);
+    } else if (receiver && !running) {
+      // If for some reason running toggled, ensure we continue the sequence
+      running = true;
+      startButton->setText("STOP");
+      receiver->armTriggeredCapture(1.0, 0.2);
+    }
+    return;
+  }
+
+  if (!capture2Done) {
+    // Second capture finished
+    capture2Done = true;
+    captureStatus2->setText("Capture 2: CAPTURED");
+    running = false;
+    startButton->setText("START");
+    unlockButton->setEnabled(true);
+    triggerStatusLabel->setText("Status: Both captured");
+    triggerStatusLabel->setStyleSheet("");
+    return;
+  }
 }
 
 void MainWindow::onTriggerStatus(bool armed, bool capturing, double centerDb,
