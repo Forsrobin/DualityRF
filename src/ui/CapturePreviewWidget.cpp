@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QMetaObject>
 #include <QTimer>
+#include <QStyle>
 #include <QtGlobal>
 #include <algorithm>
 #include <cmath>
@@ -97,6 +98,8 @@ CapturePreviewWidget::CapturePreviewWidget(const QString &title, QWidget *parent
     : QFrame(parent) {
   setObjectName("CaptureBox");
   setFrameShape(QFrame::NoFrame);
+  // default state
+  setProperty("completed", false);
 
   auto *outer = new QVBoxLayout(this);
   outer->setContentsMargins(8, 8, 8, 8);
@@ -172,6 +175,7 @@ void CapturePreviewWidget::showEmpty() {
     waterfall->reset();
   if (stack)
     stack->setCurrentIndex(0);
+  setCompleted(false);
 }
 
 void CapturePreviewWidget::loadFromFile(const QString &filePath) {
@@ -212,4 +216,13 @@ void CapturePreviewWidget::loadFromFile(const QString &filePath) {
 
   stack->setCurrentIndex(1);
   thread->start();
+}
+
+void CapturePreviewWidget::setCompleted(bool on) {
+  completed = on;
+  setProperty("completed", completed);
+  // refresh style to apply dynamic property selector
+  style()->unpolish(this);
+  style()->polish(this);
+  update();
 }

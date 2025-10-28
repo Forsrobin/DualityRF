@@ -145,6 +145,9 @@ MainWindow::MainWindow(QWidget *parent)
             border: 1px solid cyan;
             background-color: #000A0A;
         }
+        QFrame#CaptureBox[completed="true"] {
+            border: 2px solid #00ff80; /* thicker green when complete */
+        }
         QFrame#CaptureBox > QLabel {
             font-weight: bold;
             letter-spacing: 1px;
@@ -263,8 +266,10 @@ MainWindow::MainWindow(QWidget *parent)
   topBarLayout->setSpacing(12);
   // Reset Peaks and Info buttons on the far left
   QPushButton *resetPeaksBtn = new QPushButton("RESET PEAKS", topBarWidget);
+  resetCapturesButton = new QPushButton("RESET", topBarWidget);
   infoButton = new QPushButton("INFO", topBarWidget);
   topBarLayout->addWidget(resetPeaksBtn);
+  topBarLayout->addWidget(resetCapturesButton);
   topBarLayout->addWidget(infoButton);
   topBarLayout->addStretch(1);
   topBarLayout->addWidget(exitButton);
@@ -398,6 +403,8 @@ MainWindow::MainWindow(QWidget *parent)
           &SpectrumWidget::pushData, Qt::QueuedConnection);
   connect(resetPeaksBtn, &QPushButton::clicked, spectrum,
           &SpectrumWidget::resetPeaks);
+  connect(resetCapturesButton, &QPushButton::clicked, this,
+          &MainWindow::onResetCaptures);
   connect(infoButton, &QPushButton::clicked, this, [this]() {
     if (!infoDialog)
       infoDialog = new InfoDialog(this);
@@ -496,6 +503,8 @@ void MainWindow::onStart() {
     captureStatus2->setText("Capture 2: EMPTY");
     captureBox1->showEmpty();
     captureBox2->showEmpty();
+    captureBox1->setCompleted(false);
+    captureBox2->setCompleted(false);
     capture1Done = false;
     capture2Done = false;
     running = true;
@@ -516,6 +525,8 @@ void MainWindow::onStart() {
     captureStatus2->setText("Capture 2: EMPTY");
     captureBox1->showEmpty();
     captureBox2->showEmpty();
+    captureBox1->setCompleted(false);
+    captureBox2->setCompleted(false);
     capture1Done = false;
     capture2Done = false;
     unlockButton->setEnabled(false);
@@ -562,6 +573,7 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
     capture1Done = true;
     captureStatus1->setText("Capture 1: CAPTURED");
     captureBox1->loadFromFile(filePath);
+    captureBox1->setCompleted(true);
     unlockButton->setEnabled(false);
     triggerStatusLabel->setText("Status: 1/2 captured • Re-armed");
     triggerStatusLabel->setStyleSheet("");
@@ -582,6 +594,7 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
     capture2Done = true;
     captureStatus2->setText("Capture 2: CAPTURED");
     captureBox2->loadFromFile(filePath);
+    captureBox2->setCompleted(true);
     running = false;
     startButton->setText("START");
     unlockButton->setEnabled(true);
@@ -636,6 +649,41 @@ void MainWindow::onAvgTauChanged(double seconds) {
   if (receiver)
     receiver->setAvgTauSeconds(std::max(0.0, seconds));
   qInfo() << "[UI] Avg tau seconds ->" << seconds;
+}
+
+void MainWindow::onResetCaptures() {
+  qInfo() << "[UI] RESET clicked -> Clear captures & reset state";
+  // Stop any armed/capture state and return to idle
+  if (receiver) {
+    receiver->cancelTriggeredCapture();
+  }
+  running = false;
+  startButton->setText("START");
+
+  // Clear captures folder
+  {
+    QDir capDir("captures");
+    if (capDir.exists())
+      capDir.removeRecursively();
+    QDir().mkpath("captures");
+  }
+
+  // Reset UI state
+  capture1Done = false;
+  capture2Done = false;
+  captureStatus1->setText("Capture 1: EMPTY");
+  captureStatus2->setText("Capture 2: EMPTY");
+  if (captureBox1)
+    captureBox1->showEmpty();
+  if (captureBox2)
+    captureBox2->showEmpty();
+  if (captureBox1)
+    captureBox1->setCompleted(false);
+  if (captureBox2)
+    captureBox2->setCompleted(false);
+  unlockButton->setEnabled(false);
+  triggerStatusLabel->setText("Status: Idle");
+  triggerStatusLabel->setStyleSheet("");
 }
 
 void MainWindow::onRxFrequencyChanged(double frequencyMHz) {

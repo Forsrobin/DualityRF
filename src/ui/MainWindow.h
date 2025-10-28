@@ -41,6 +41,7 @@ private slots:
   void onDetectorModeChanged(int index);
   void onDwellChanged(double seconds);
   void onAvgTauChanged(double seconds);
+  void onResetCaptures();
 
 private:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -56,6 +57,7 @@ private:
   QPushButton *unlockButton;
   QPushButton *exitButton;
   QPushButton *infoButton;
+  QPushButton *resetCapturesButton{nullptr};
   QPushButton *zoomOutButton;
   QPushButton *zoomInButton;
   QSlider *zoomSlider;

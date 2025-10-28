@@ -35,6 +35,7 @@ public:
 
   void setFrequencyInfo(double rxHz, double centerHz, double sampleRateHz);
   void setCaptureSpanHz(double halfSpanHz);
+  void setCompleted(bool on);
 
 public slots:
   void showEmpty();
@@ -55,4 +56,5 @@ private:
   double centerHz{0.0};
   double sampleRateHz{0.0};
   double spanHalfHz{100000.0};
+  bool completed{false};
 };
