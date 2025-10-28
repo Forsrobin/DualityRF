@@ -43,6 +43,13 @@ void CapturePreviewWorker::startPreview(const QString &path, double sampleRateHz
 
   const float invN = 1.0f / float(N);
   const float ampScale = invN / std::max(coherentGain, 1e-9f);
+  // Determine a pacing interval based on sample rate, but faster than real-time
+  int sleepMs = 1; // default fast pace
+  if (sampleRateHz > 0.0) {
+    double frameSec = double(N) / sampleRateHz; // seconds per FFT window
+    // Speed up playback: quarter of real-time, but at least 1 ms
+    sleepMs = std::max(1, int(frameSec * 1000.0 * 0.25));
+  }
 
   while (running.load(std::memory_order_acquire)) {
     // read one block
@@ -71,8 +78,8 @@ void CapturePreviewWorker::startPreview(const QString &path, double sampleRateHz
       ampsShift[i] = amps[(i + half) % N];
 
     emit frameReady(ampsShift);
-    // modest pacing to let UI paint without flooding
-    QThread::msleep(8);
+    // faster pacing for snappier preview
+    QThread::msleep(sleepMs);
   }
 
   fftwf_destroy_plan(plan);

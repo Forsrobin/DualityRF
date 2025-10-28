@@ -17,7 +17,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), running(false), waterfallActive(false),
       sampleRateHz(2.6e6) {
   setWindowTitle("Duality RF Console");
-  setFixedSize(1280, 800);
+  setFixedSize(1280, 1000);
 
   QWidget *central = new QWidget(this);
   setCentralWidget(central);
@@ -184,8 +184,10 @@ MainWindow::MainWindow(QWidget *parent)
   unlockButton = new QPushButton("UNLOCK", this);
   unlockButton->setEnabled(false);
 
-  captureStatus1 = new QLabel("Capture 1: EMPTY", this); // legacy label (not shown)
-  captureStatus2 = new QLabel("Capture 2: EMPTY", this);
+  captureStatus1 = new QLabel("Capture 1: EMPTY", this); // legacy label
+  captureStatus2 = new QLabel("Capture 2: EMPTY", this); // legacy label
+  captureStatus1->hide();
+  captureStatus2->hide();
   captureBox1 = new CapturePreviewWidget("Capture 1", this);
   captureBox2 = new CapturePreviewWidget("Capture 2", this);
 
@@ -438,8 +440,8 @@ MainWindow::MainWindow(QWidget *parent)
 
   // initialize threshold in receiver
   if (receiver)
-    receiver->setTriggerThresholdDb(-40.0);
-  spectrum->setThresholdDb(-40.0);
+    receiver->setTriggerThresholdDb(-30.0);
+  spectrum->setThresholdDb(-30.0);
   // Initialize span (kHz -> Hz)
   if (receiver)
     receiver->setCaptureSpanHz(spanSlider->value() * 1000.0);
@@ -502,7 +504,7 @@ void MainWindow::onStart() {
     triggerStatusLabel->setText("Status: Armed");
     triggerStatusLabel->setStyleSheet("");
     if (receiver)
-      receiver->armTriggeredCapture(1.0, 0.2);
+      receiver->armTriggeredCapture(0.2, 0.2);
   } else {
     qInfo() << "[UI] STOP clicked -> Cancel capture";
     // Cancel armed/capturing state
@@ -565,12 +567,12 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
     triggerStatusLabel->setStyleSheet("");
     // Keep running and re-arm for the second capture
     if (receiver && running) {
-      receiver->armTriggeredCapture(1.0, 0.2);
+      receiver->armTriggeredCapture(0.2, 0.2);
     } else if (receiver && !running) {
       // If for some reason running toggled, ensure we continue the sequence
       running = true;
       startButton->setText("STOP");
-      receiver->armTriggeredCapture(1.0, 0.2);
+      receiver->armTriggeredCapture(0.2, 0.2);
     }
     return;
   }
