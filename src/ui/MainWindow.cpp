@@ -176,6 +176,11 @@ MainWindow::MainWindow(QWidget *parent)
   txFreq = new QDoubleSpinBox(this);
   rxFreq->setSuffix(" MHz");
   txFreq->setSuffix(" MHz");
+  // Step size: 1 kHz = 0.001 MHz
+  rxFreq->setDecimals(3);
+  txFreq->setDecimals(3);
+  rxFreq->setSingleStep(0.001);
+  txFreq->setSingleStep(0.001);
   rxFreq->setRange(0.1, 6000);
   txFreq->setRange(0.1, 6000);
   rxFreq->setValue(433.81);
@@ -680,6 +685,9 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
     running = false;
     startButton->setText("START");
     unlockButton->setEnabled(true);
+    // Auto-stop TX noise when both captures are done
+    if (transmitter)
+      transmitter->stop();
     triggerStatusLabel->setText("Status: Both captured");
     triggerStatusLabel->setStyleSheet("");
     return;
