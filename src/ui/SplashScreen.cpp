@@ -34,7 +34,9 @@ SplashScreen::SplashScreen(QWidget *parent) : QWidget(parent) {
 
 void SplashScreen::checkDevices() {
   manager->pollDevices();
-  if (manager->hasRTLSDR() && manager->hasHackRF()) {
+
+  if (manager->hasRTLSDR()) {
+    // if (manager->hasRTLSDR() && manager->hasHackRF()) {
     pollTimer->stop();
     emit bothDevicesReady();
   } else {

@@ -1,7 +1,7 @@
 
 #include "MainWindow.h"
-#include <QApplication>
 #include "../core/SDRTransmitter.h"
+#include <QApplication>
 #include <QCloseEvent>
 #include <QDebug>
 #include <QDir>
@@ -179,7 +179,7 @@ MainWindow::MainWindow(QWidget *parent)
   rxFreq->setRange(0.1, 6000);
   txFreq->setRange(0.1, 6000);
   rxFreq->setValue(433.81);
-  txFreq->setValue(433.95);
+  txFreq->setValue(434.20);
 
   exitButton = new QPushButton("EXIT", this);
   exitButton->setObjectName("ExitButton");
@@ -377,13 +377,13 @@ MainWindow::MainWindow(QWidget *parent)
   QHBoxLayout *txNoiseLayout = new QHBoxLayout;
   txNoiseLayout->setSpacing(12);
   noiseIntensitySlider = new QSlider(Qt::Horizontal, this);
-  noiseIntensitySlider->setRange(0, 100); // percent
+  noiseIntensitySlider->setRange(0, 47); // TX VGA 0..47 dB
   noiseIntensitySlider->setSingleStep(1);
   noiseIntensitySlider->setPageStep(5);
-  noiseIntensitySlider->setValue(50);
+  noiseIntensitySlider->setValue(25); // default 25 dB
   noiseIntensitySlider->setFocusPolicy(Qt::NoFocus);
-  noiseIntensityLabel = new QLabel("Noise Intensity: 50%", this);
-  txNoiseLayout->addWidget(new QLabel("Noise Intensity:", this));
+  noiseIntensityLabel = new QLabel("TX Gain: 25 dB", this);
+  txNoiseLayout->addWidget(new QLabel("TX Gain:", this));
   txNoiseLayout->addWidget(noiseIntensitySlider, 1);
   txNoiseLayout->addWidget(noiseIntensityLabel);
   noiseSpanSlider = new QSlider(Qt::Horizontal, this);
@@ -498,7 +498,7 @@ MainWindow::MainWindow(QWidget *parent)
   transmitter = new SDRTransmitter(this);
   transmitter->setSampleRate(sampleRateHz);
   transmitter->setFrequencyMHz(txFreq->value());
-  transmitter->setNoiseIntensity(noiseIntensitySlider->value() / 100.0);
+  transmitter->setTxGainDb(noiseIntensitySlider->value());
   transmitter->setNoiseSpanHz(noiseSpanSlider->value() * 1000.0);
   // Initialize visual noise span overlays
   waterfall->setNoiseSpanHz(noiseSpanSlider->value() * 1000.0);
@@ -559,7 +559,7 @@ void MainWindow::onStart() {
     if (transmitter) {
       transmitter->setSampleRate(sampleRateHz);
       transmitter->setFrequencyMHz(txFreq->value());
-      transmitter->setNoiseIntensity(noiseIntensitySlider->value() / 100.0);
+      transmitter->setTxGainDb(noiseIntensitySlider->value());
       transmitter->setNoiseSpanHz(noiseSpanSlider->value() * 1000.0);
       transmitter->start();
     }
@@ -616,12 +616,11 @@ void MainWindow::onSpanChanged(int sliderValue) {
 }
 
 void MainWindow::onNoiseIntensityChanged(int value) {
-  int clamped = std::clamp(value, 0, 100);
-  noiseIntensityLabel->setText(
-      QString("Noise Intensity: %1% ").arg(clamped));
+  int clamped = std::clamp(value, 0, 47);
+  noiseIntensityLabel->setText(QString("TX Gain: %1 dB").arg(clamped));
   if (transmitter)
-    transmitter->setNoiseIntensity(clamped / 100.0);
-  qInfo() << "[UI] Noise intensity ->" << clamped << "%";
+    transmitter->setTxGainDb(clamped);
+  qInfo() << "[UI] TX gain ->" << clamped << "dB";
 }
 
 void MainWindow::onNoiseSpanChanged(int kHz) {
