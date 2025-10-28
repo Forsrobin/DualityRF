@@ -141,6 +141,14 @@ MainWindow::MainWindow(QWidget *parent)
             color: #5a2b2b;
             border: 1px solid #5a2b2b;
         }
+        QFrame#CaptureBox {
+            border: 1px solid cyan;
+            background-color: #000A0A;
+        }
+        QFrame#CaptureBox > QLabel {
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
         QPushButton#ExitButton:hover {
             background-color: #3a0000;
             color: #ff8080;
@@ -176,8 +184,10 @@ MainWindow::MainWindow(QWidget *parent)
   unlockButton = new QPushButton("UNLOCK", this);
   unlockButton->setEnabled(false);
 
-  captureStatus1 = new QLabel("Capture 1: EMPTY", this);
+  captureStatus1 = new QLabel("Capture 1: EMPTY", this); // legacy label (not shown)
   captureStatus2 = new QLabel("Capture 2: EMPTY", this);
+  captureBox1 = new CapturePreviewWidget("Capture 1", this);
+  captureBox2 = new CapturePreviewWidget("Capture 2", this);
 
   // Threshold slider (-100..0 dB), default -30 dB
   thresholdSlider = new QSlider(Qt::Horizontal, this);
@@ -356,8 +366,14 @@ MainWindow::MainWindow(QWidget *parent)
   layout->addWidget(triggerStatusLabel);
   layout->addLayout(thLayout);
   layout->addWidget(startButton);
-  layout->addWidget(captureStatus1);
-  layout->addWidget(captureStatus2);
+  // Two capture boxes in one row
+  {
+    QHBoxLayout *caps = new QHBoxLayout;
+    caps->setSpacing(12);
+    caps->addWidget(captureBox1, 1);
+    caps->addWidget(captureBox2, 1);
+    layout->addLayout(caps);
+  }
   layout->addWidget(unlockButton);
   central->setLayout(layout);
 
@@ -366,6 +382,13 @@ MainWindow::MainWindow(QWidget *parent)
   spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
   spectrum->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
+  // Configure capture preview boxes
+  captureBox1->setFrequencyInfo(rxFreq->value() * 1e6, rxFreq->value() * 1e6,
+                                sampleRateHz);
+  captureBox1->setCaptureSpanHz(spanSlider->value() * 1000.0);
+  captureBox2->setFrequencyInfo(rxFreq->value() * 1e6, rxFreq->value() * 1e6,
+                                sampleRateHz);
+  captureBox2->setCaptureSpanHz(spanSlider->value() * 1000.0);
 
   connect(receiver, &SDRReceiver::newFFTData, waterfall,
           &WaterfallWidget::pushData, Qt::QueuedConnection);
@@ -422,6 +445,8 @@ MainWindow::MainWindow(QWidget *parent)
     receiver->setCaptureSpanHz(spanSlider->value() * 1000.0);
   waterfall->setCaptureSpanHz(spanSlider->value() * 1000.0);
   spectrum->setCaptureSpanHz(spanSlider->value() * 1000.0);
+  captureBox1->setCaptureSpanHz(spanSlider->value() * 1000.0);
+  captureBox2->setCaptureSpanHz(spanSlider->value() * 1000.0);
   if (receiver)
     receiver->setDetectorMode(detectorModeCombo->currentIndex());
   if (receiver) {
@@ -452,6 +477,10 @@ void MainWindow::startWaterfall() {
   waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
   spectrum->setFrequencyInfo(rxFreq->value() * 1e6, sampleRateHz);
   spectrum->setRxTxFrequencies(rxFreq->value() * 1e6, txFreq->value() * 1e6);
+  captureBox1->setFrequencyInfo(rxFreq->value() * 1e6, rxFreq->value() * 1e6,
+                                sampleRateHz);
+  captureBox2->setFrequencyInfo(rxFreq->value() * 1e6, rxFreq->value() * 1e6,
+                                sampleRateHz);
   receiver->startStream(rxFreq->value(), sampleRateHz);
   waterfallActive = true;
   qInfo() << "[UI] Waterfall started";
@@ -463,6 +492,8 @@ void MainWindow::onStart() {
     // Arm trigger capture: clear statuses and begin buffering
     captureStatus1->setText("Capture 1: EMPTY");
     captureStatus2->setText("Capture 2: EMPTY");
+    captureBox1->showEmpty();
+    captureBox2->showEmpty();
     capture1Done = false;
     capture2Done = false;
     running = true;
@@ -481,6 +512,8 @@ void MainWindow::onStart() {
       receiver->cancelTriggeredCapture();
     captureStatus1->setText("Capture 1: EMPTY");
     captureStatus2->setText("Capture 2: EMPTY");
+    captureBox1->showEmpty();
+    captureBox2->showEmpty();
     capture1Done = false;
     capture2Done = false;
     unlockButton->setEnabled(false);
@@ -511,6 +544,10 @@ void MainWindow::onSpanChanged(int sliderValue) {
     waterfall->setCaptureSpanHz(halfHz);
   if (spectrum)
     spectrum->setCaptureSpanHz(halfHz);
+  if (captureBox1)
+    captureBox1->setCaptureSpanHz(halfHz);
+  if (captureBox2)
+    captureBox2->setCaptureSpanHz(halfHz);
   qInfo() << "[UI] Capture span set to ±" << kHz << "kHz";
 }
 
@@ -522,6 +559,7 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
     // First capture finished, update status and immediately arm for capture 2
     capture1Done = true;
     captureStatus1->setText("Capture 1: CAPTURED");
+    captureBox1->loadFromFile(filePath);
     unlockButton->setEnabled(false);
     triggerStatusLabel->setText("Status: 1/2 captured • Re-armed");
     triggerStatusLabel->setStyleSheet("");
@@ -541,6 +579,7 @@ void MainWindow::onCaptureCompleted(const QString &filePath) {
     // Second capture finished
     capture2Done = true;
     captureStatus2->setText("Capture 2: CAPTURED");
+    captureBox2->loadFromFile(filePath);
     running = false;
     startButton->setText("START");
     unlockButton->setEnabled(true);
@@ -602,6 +641,10 @@ void MainWindow::onRxFrequencyChanged(double frequencyMHz) {
   waterfall->setRxTxFrequencies(frequencyMHz * 1e6, txFreq->value() * 1e6);
   spectrum->setFrequencyInfo(frequencyMHz * 1e6, sampleRateHz);
   spectrum->setRxTxFrequencies(frequencyMHz * 1e6, txFreq->value() * 1e6);
+  captureBox1->setFrequencyInfo(frequencyMHz * 1e6, frequencyMHz * 1e6,
+                                sampleRateHz);
+  captureBox2->setFrequencyInfo(frequencyMHz * 1e6, frequencyMHz * 1e6,
+                                sampleRateHz);
   if (!waterfallActive)
     return;
 

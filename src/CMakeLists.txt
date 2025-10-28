@@ -4,6 +4,7 @@ add_executable(duality_rf
     ui/SplashScreen.cpp
     ui/MainWindow.cpp
     ui/WaterfallWidget.cpp
+    ui/CapturePreviewWidget.cpp
     ui/SpectrumWidget.cpp
     ui/componenets/InfoDialog.cpp
     core/SDRManager.cpp

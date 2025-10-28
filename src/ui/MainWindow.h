@@ -3,6 +3,7 @@
 #include "../core/SDRReceiver.h"
 #include "WaterfallWidget.h"
 #include "SpectrumWidget.h"
+#include "CapturePreviewWidget.h"
 #include "componenets/InfoDialog.h"
 #include <QDoubleSpinBox>
 #include <QEvent>
@@ -67,6 +68,8 @@ private:
   SpectrumWidget *spectrum;
   QLabel *captureStatus1;
   QLabel *captureStatus2;
+  CapturePreviewWidget *captureBox1{nullptr};
+  CapturePreviewWidget *captureBox2{nullptr};
   QSlider *thresholdSlider;
   QLabel *thresholdLabel;
   QLabel *triggerStatusLabel;
