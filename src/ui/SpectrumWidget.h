@@ -15,6 +15,7 @@ public slots:
   void setThresholdDb(double db);
   void setRxTxFrequencies(double rxHz, double txHz);
   void setCaptureSpanHz(double halfSpanHz);
+  void setNoiseSpanHz(double halfSpanHz);
 
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -34,5 +35,6 @@ private:
   double thresholdDb{std::numeric_limits<double>::quiet_NaN()};
   int zoomStep{0};
   double captureSpanHalfHz{0.0};
+  double noiseSpanHalfHz{0.0};
   double zoomFactor() const;
 };

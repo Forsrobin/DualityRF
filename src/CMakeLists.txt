@@ -10,6 +10,7 @@ add_executable(duality_rf
     ui/componenets/InfoDialog.cpp
     core/SDRManager.cpp
     core/SDRReceiver.cpp
+    core/SDRTransmitter.cpp
     resources.qrc
 )
 

@@ -109,6 +109,15 @@ void WaterfallWidget::setShowCaptureSpan(bool show) {
   }
 }
 
+void WaterfallWidget::setNoiseSpanHz(double halfSpanHz) {
+  if (halfSpanHz < 0.0)
+    halfSpanHz = 0.0;
+  if (std::abs(noiseSpanHalfHz - halfSpanHz) > 1e-6) {
+    noiseSpanHalfHz = halfSpanHz;
+    update();
+  }
+}
+
 void WaterfallWidget::reset() {
   img = QImage();
   nextRow = 0;
@@ -239,6 +248,41 @@ void WaterfallWidget::drawFrequencyMarkers(QPainter &painter,
       painter.save();
       painter.setPen(Qt::NoPen);
       painter.setBrush(QColor(0, 255, 0, 40));
+      painter.drawRect(QRect(QPoint(xL, top), QPoint(xR, bottom)));
+      painter.restore();
+    }
+    painter.setPen(gridPen);
+  }
+
+  // Noise span visualization around TX: ±noiseSpanHalfHz
+  if (txFrequencyHz > 0.0 && noiseSpanHalfHz > 0.0) {
+    double span = sampleRateHz / zoomFactor();
+    double startFreq = centerFrequencyHz - span / 2.0;
+    double invSpan = 1.0 / span;
+    int left = targetRect.left();
+    int width = targetRect.width();
+    int top = targetRect.top();
+    int bottom = targetRect.bottom();
+
+    double fL = txFrequencyHz - noiseSpanHalfHz;
+    double fR = txFrequencyHz + noiseSpanHalfHz;
+    double rL = (fL - startFreq) * invSpan;
+    double rR = (fR - startFreq) * invSpan;
+    if (!(rL < 0.0 && rR < 0.0) && !(rL > 1.0 && rR > 1.0)) {
+      int xL = left + static_cast<int>(std::round(std::clamp(rL, 0.0, 1.0) * width));
+      int xR = left + static_cast<int>(std::round(std::clamp(rR, 0.0, 1.0) * width));
+      if (xL > xR)
+        std::swap(xL, xR);
+      // Draw boundary lines in red
+      QPen spanPen(QColor(255, 80, 80));
+      spanPen.setWidth(2);
+      painter.setPen(spanPen);
+      painter.drawLine(xL, top, xL, bottom);
+      painter.drawLine(xR, top, xR, bottom);
+      // Fill translucent red
+      painter.save();
+      painter.setPen(Qt::NoPen);
+      painter.setBrush(QColor(255, 80, 80, 40));
       painter.drawRect(QRect(QPoint(xL, top), QPoint(xR, bottom)));
       painter.restore();
     }

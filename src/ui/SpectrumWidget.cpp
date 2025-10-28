@@ -80,6 +80,13 @@ void SpectrumWidget::setCaptureSpanHz(double halfSpanHz) {
   update();
 }
 
+void SpectrumWidget::setNoiseSpanHz(double halfSpanHz) {
+  if (halfSpanHz < 0.0)
+    halfSpanHz = 0.0;
+  noiseSpanHalfHz = halfSpanHz;
+  update();
+}
+
 void SpectrumWidget::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.fillRect(rect(), QColor(0, 0, 0));
@@ -156,6 +163,28 @@ void SpectrumWidget::paintEvent(QPaintEvent *) {
     p.save();
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(0, 255, 0, 40));
+    p.drawRect(QRect(QPoint(xL, r.top()), QPoint(xR, r.bottom())));
+    p.restore();
+  }
+
+  // Draw noise span overlay around TX frequency
+  if (sampleRate > 0.0 && txFrequencyHz > 0.0 && noiseSpanHalfHz > 0.0) {
+    double span = sampleRate / zoomFactor();
+    double startFreq = centerHz - span / 2.0;
+    double invSpan = 1.0 / span;
+    int xL = r.left() + int(std::round(std::clamp((txFrequencyHz - noiseSpanHalfHz - startFreq) * invSpan, 0.0, 1.0) * r.width()));
+    int xR = r.left() + int(std::round(std::clamp((txFrequencyHz + noiseSpanHalfHz - startFreq) * invSpan, 0.0, 1.0) * r.width()));
+    if (xL > xR) std::swap(xL, xR);
+
+    QPen spanPen(QColor(255, 80, 80));
+    spanPen.setWidth(2);
+    p.setPen(spanPen);
+    p.drawLine(xL, r.top(), xL, r.bottom());
+    p.drawLine(xR, r.top(), xR, r.bottom());
+
+    p.save();
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 80, 80, 40));
     p.drawRect(QRect(QPoint(xL, r.top()), QPoint(xR, r.bottom())));
     p.restore();
   }

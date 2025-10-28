@@ -42,6 +42,8 @@ private slots:
   void onDwellChanged(double seconds);
   void onAvgTauChanged(double seconds);
   void onResetCaptures();
+  void onNoiseIntensityChanged(int value);
+  void onNoiseSpanChanged(int kHz);
 
 private:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -80,7 +82,14 @@ private:
   QDoubleSpinBox *avgTauSpin;
   InfoDialog *infoDialog{nullptr};
 
+  // TX controls
+  QSlider *noiseIntensitySlider{nullptr};
+  QLabel *noiseIntensityLabel{nullptr};
+  QSlider *noiseSpanSlider{nullptr};
+  QLabel *noiseSpanLabel{nullptr};
+
   SDRReceiver *receiver;
+  class SDRTransmitter *transmitter{nullptr};
   bool running;
   bool waterfallActive;
   double sampleRateHz;

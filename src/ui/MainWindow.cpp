@@ -1,6 +1,7 @@
 
 #include "MainWindow.h"
 #include <QApplication>
+#include "../core/SDRTransmitter.h"
 #include <QCloseEvent>
 #include <QDebug>
 #include <QDir>
@@ -372,6 +373,31 @@ MainWindow::MainWindow(QWidget *parent)
   // Place status text above the control row
   layout->addWidget(triggerStatusLabel);
   layout->addLayout(thLayout);
+  // TX noise controls row (under capture controls)
+  QHBoxLayout *txNoiseLayout = new QHBoxLayout;
+  txNoiseLayout->setSpacing(12);
+  noiseIntensitySlider = new QSlider(Qt::Horizontal, this);
+  noiseIntensitySlider->setRange(0, 100); // percent
+  noiseIntensitySlider->setSingleStep(1);
+  noiseIntensitySlider->setPageStep(5);
+  noiseIntensitySlider->setValue(50);
+  noiseIntensitySlider->setFocusPolicy(Qt::NoFocus);
+  noiseIntensityLabel = new QLabel("Noise Intensity: 50%", this);
+  txNoiseLayout->addWidget(new QLabel("Noise Intensity:", this));
+  txNoiseLayout->addWidget(noiseIntensitySlider, 1);
+  txNoiseLayout->addWidget(noiseIntensityLabel);
+  noiseSpanSlider = new QSlider(Qt::Horizontal, this);
+  noiseSpanSlider->setRange(1, 400); // 1..400 kHz baseband half-span
+  noiseSpanSlider->setSingleStep(1);
+  noiseSpanSlider->setPageStep(10);
+  noiseSpanSlider->setValue(100);
+  noiseSpanSlider->setFocusPolicy(Qt::NoFocus);
+  noiseSpanLabel = new QLabel("Noise Span: ±100 kHz", this);
+  txNoiseLayout->addSpacing(16);
+  txNoiseLayout->addWidget(new QLabel("Noise Span:", this));
+  txNoiseLayout->addWidget(noiseSpanSlider, 1);
+  txNoiseLayout->addWidget(noiseSpanLabel);
+  layout->addLayout(txNoiseLayout);
   layout->addWidget(startButton);
   // Two capture boxes in one row
   {
@@ -427,6 +453,8 @@ MainWindow::MainWindow(QWidget *parent)
           this, [this](double txMHz) {
             waterfall->setRxTxFrequencies(rxFreq->value() * 1e6, txMHz * 1e6);
             spectrum->setRxTxFrequencies(rxFreq->value() * 1e6, txMHz * 1e6);
+            if (transmitter)
+              transmitter->setFrequencyMHz(txMHz);
           });
   connect(zoomSlider, &QSlider::valueChanged, this,
           &MainWindow::onZoomSliderChanged);
@@ -438,6 +466,10 @@ MainWindow::MainWindow(QWidget *parent)
   connect(sampleRateCombo, qOverload<int>(&QComboBox::currentIndexChanged),
           this, &MainWindow::onSampleRateChanged);
   connect(spanSlider, &QSlider::valueChanged, this, &MainWindow::onSpanChanged);
+  connect(noiseIntensitySlider, &QSlider::valueChanged, this,
+          &MainWindow::onNoiseIntensityChanged);
+  connect(noiseSpanSlider, &QSlider::valueChanged, this,
+          &MainWindow::onNoiseSpanChanged);
   connect(detectorModeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
           this, &MainWindow::onDetectorModeChanged);
   connect(dwellSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
@@ -462,6 +494,15 @@ MainWindow::MainWindow(QWidget *parent)
     receiver->setDwellSeconds(0.02);
     receiver->setAvgTauSeconds(0.20);
   }
+  // Initialize transmitter (HackRF TX)
+  transmitter = new SDRTransmitter(this);
+  transmitter->setSampleRate(sampleRateHz);
+  transmitter->setFrequencyMHz(txFreq->value());
+  transmitter->setNoiseIntensity(noiseIntensitySlider->value() / 100.0);
+  transmitter->setNoiseSpanHz(noiseSpanSlider->value() * 1000.0);
+  // Initialize visual noise span overlays
+  waterfall->setNoiseSpanHz(noiseSpanSlider->value() * 1000.0);
+  spectrum->setNoiseSpanHz(noiseSpanSlider->value() * 1000.0);
   qInfo() << "[UI] Initialized with RX(MHz)=" << rxFreq->value()
           << "TX(MHz)=" << txFreq->value() << "SR(Hz)=" << sampleRateHz;
   connect(receiver, &SDRReceiver::captureCompleted, this,
@@ -514,6 +555,14 @@ void MainWindow::onStart() {
     triggerStatusLabel->setStyleSheet("");
     if (receiver)
       receiver->armTriggeredCapture(0.2, 0.2);
+    // Start HackRF TX with current settings
+    if (transmitter) {
+      transmitter->setSampleRate(sampleRateHz);
+      transmitter->setFrequencyMHz(txFreq->value());
+      transmitter->setNoiseIntensity(noiseIntensitySlider->value() / 100.0);
+      transmitter->setNoiseSpanHz(noiseSpanSlider->value() * 1000.0);
+      transmitter->start();
+    }
   } else {
     qInfo() << "[UI] STOP clicked -> Cancel capture";
     // Cancel armed/capturing state
@@ -521,6 +570,8 @@ void MainWindow::onStart() {
     startButton->setText("START");
     if (receiver)
       receiver->cancelTriggeredCapture();
+    if (transmitter)
+      transmitter->stop();
     captureStatus1->setText("Capture 1: EMPTY");
     captureStatus2->setText("Capture 2: EMPTY");
     captureBox1->showEmpty();
@@ -562,6 +613,27 @@ void MainWindow::onSpanChanged(int sliderValue) {
   if (captureBox2)
     captureBox2->setCaptureSpanHz(halfHz);
   qInfo() << "[UI] Capture span set to ±" << kHz << "kHz";
+}
+
+void MainWindow::onNoiseIntensityChanged(int value) {
+  int clamped = std::clamp(value, 0, 100);
+  noiseIntensityLabel->setText(
+      QString("Noise Intensity: %1% ").arg(clamped));
+  if (transmitter)
+    transmitter->setNoiseIntensity(clamped / 100.0);
+  qInfo() << "[UI] Noise intensity ->" << clamped << "%";
+}
+
+void MainWindow::onNoiseSpanChanged(int kHz) {
+  int ck = std::clamp(kHz, 1, 400);
+  noiseSpanLabel->setText(QString("Noise Span: ±%1 kHz").arg(ck));
+  if (transmitter)
+    transmitter->setNoiseSpanHz(ck * 1000.0);
+  if (waterfall)
+    waterfall->setNoiseSpanHz(ck * 1000.0);
+  if (spectrum)
+    spectrum->setNoiseSpanHz(ck * 1000.0);
+  qInfo() << "[UI] Noise span -> ±" << ck << "kHz";
 }
 
 void MainWindow::onCaptureCompleted(const QString &filePath) {
@@ -803,6 +875,9 @@ void MainWindow::onSampleRateChanged(int index) {
     spectrum->resetPeaks();
     receiver->startStream(rxFreq->value(), sampleRateHz);
   }
+  if (transmitter) {
+    transmitter->setSampleRate(sampleRateHz);
+  }
   qInfo() << "[UI] Sample rate changed ->" << sr;
 }
 
@@ -818,6 +893,9 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
   if (receiver) {
     receiver->stopStream();
+  }
+  if (transmitter) {
+    transmitter->stop();
   }
   waterfallActive = false;
   waterfall->reset();

@@ -18,6 +18,7 @@ public slots:
   void setZoomStep(int step); // 0 -> 1x, 1 -> 2x, 2 -> 4x, ...
   void setCaptureSpanHz(double halfSpanHz);
   void setShowCaptureSpan(bool show);
+  void setNoiseSpanHz(double halfSpanHz);
   void reset();
 protected:
   void paintEvent(QPaintEvent *event) override;
@@ -36,6 +37,7 @@ private:
   double rxFrequencyHz{0.0};
   double txFrequencyHz{0.0};
   double captureSpanHalfHz{100000.0};
+  double noiseSpanHalfHz{0.0};
   bool showCaptureSpan{true};
   QVector<double> markerFrequencies;
   static constexpr int markerCount = 40;
