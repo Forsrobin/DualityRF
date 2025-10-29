@@ -22,9 +22,15 @@ target_link_libraries(duality_rf
         Qt6::Widgets
         ${FFTW_LIBRARIES}
 )
+
 target_include_directories(duality_rf PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/ui
     ${CMAKE_CURRENT_SOURCE_DIR}/core
     ${SoapySDR_INCLUDE_DIRS}
     ${FFTW_INCLUDE_DIRS}
 )
+
+add_executable(record_hackrf test/record_hackrf.cpp)
+target_link_libraries(record_hackrf PRIVATE SoapySDR)
+add_executable(replay_hackrf test/replay_hackrf.cpp)
+target_link_libraries(replay_hackrf PRIVATE hackrf)

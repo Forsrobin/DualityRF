@@ -1,0 +1,2 @@
+center_frequency=433800000
+sample_rate=1000000
