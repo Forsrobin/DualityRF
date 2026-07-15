@@ -1,0 +1,32 @@
+add_library(duality_ui STATIC
+    Theme.h
+    Theme.cpp
+    SpectrumWidget.h
+    SpectrumWidget.cpp
+    WaterfallWidget.h
+    WaterfallWidget.cpp
+    DevicePanel.h
+    DevicePanel.cpp
+    CapturePanel.h
+    CapturePanel.cpp
+    TransmitPanel.h
+    TransmitPanel.cpp
+    PlaybackPanel.h
+    PlaybackPanel.cpp
+    SessionBrowser.h
+    SessionBrowser.cpp
+    DebugWorkspace.h
+    DebugWorkspace.cpp
+    MainWindow.h
+    MainWindow.cpp
+)
+
+target_link_libraries(duality_ui
+    PUBLIC
+        duality_core
+        duality_sdr
+        duality_dsp
+        duality_storage
+        duality_pipeline
+        Qt6::Widgets
+)

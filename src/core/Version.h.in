@@ -1,0 +1,8 @@
+#pragma once
+
+namespace duality {
+
+inline constexpr const char *kVersion = "@PROJECT_VERSION@";
+inline constexpr const char *kAppName = "@PROJECT_NAME@";
+
+} // namespace duality

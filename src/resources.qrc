@@ -1,0 +1,11 @@
+<RCC>
+    <qresource prefix="/assets">
+        <file alias="logo.png">../assets/logo.png</file>
+        <file alias="arrow-up-white.png">../assets/arrow-up-white.png</file>
+        <file alias="arrow-up-black.png">../assets/arrow-up-black.png</file>
+        <file alias="arrow-up-gray.png">../assets/arrow-up-gray.png</file>
+        <file alias="arrow-down-white.png">../assets/arrow-down-white.png</file>
+        <file alias="arrow-down-black.png">../assets/arrow-down-black.png</file>
+        <file alias="arrow-down-gray.png">../assets/arrow-down-gray.png</file>
+    </qresource>
+</RCC>
