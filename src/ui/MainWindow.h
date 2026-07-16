@@ -10,6 +10,7 @@
 
 #include <QMainWindow>
 
+#include <chrono>
 #include <memory>
 
 class QStackedWidget;
@@ -51,6 +52,18 @@ private:
     Session *ensureSession();
     void cacheRecordingSpectrum(const RecordingMetadata &meta);
     void updateCaptureRangeOverlay();
+    // Opens the transmitter and starts the concurrent waveform on the given
+    // capture channel; returns false if it could not start.
+    bool startConcurrentTx(const StreamParams &captureParams);
+    // Toggles the concurrent transmission on/off while a capture is running.
+    void onTransmitToggled(bool enabled);
+
+    // Auto-capture: continuously records each in-band transmission to its own
+    // trimmed file.
+    enum class AutoPhase { WaitSignal, Recording, Finalizing };
+    void startAutoCapture();
+    void driveAutoCapture(const QVector<float> &row);
+    void onAutoSegmentSaved(const RecordingMetadata &meta);
 
     // Services
     DeviceManager m_deviceManager;
@@ -58,7 +71,14 @@ private:
     std::unique_ptr<Session> m_session;
     SpectrumProcessor m_spectrumProcessor;
     PeakDetector m_peakDetector;
+    StreamParams m_activeCaptureParams; // channel of the running capture
     bool m_monitorLive = false;
+    bool m_autoActive = false;
+    AutoPhase m_autoPhase = AutoPhase::WaitSignal;
+    double m_autoBandCenterHz = 0.0;
+    double m_autoBandHalfHz = 0.0;
+    std::chrono::steady_clock::time_point m_autoLastSignal;
+    static constexpr auto kAutoDebounce = std::chrono::milliseconds(300);
     CapturePipeline m_capture;
     PlaybackPipeline m_playback;
     TransmitPipeline m_transmit;

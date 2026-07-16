@@ -1,6 +1,7 @@
 #include "pipeline/CapturePipeline.h"
 
 #include "core/Version.h"
+#include "dsp/BandTrimmer.h"
 #include "dsp/SpectrumProcessor.h"
 #include "sdr/IReceiver.h"
 #include "storage/IqFileWriter.h"
@@ -15,6 +16,9 @@ namespace duality {
 
 namespace {
 constexpr std::size_t kChunkSamples = 16384;
+// Safety cap on a single auto-capture segment held in memory before it is
+// trimmed and written (~64M samples). A signal longer than this is split.
+constexpr qint64 kMaxSegmentSamples = 64 * 1024 * 1024;
 }
 
 CapturePipeline::CapturePipeline(SpectrumProcessor *spectrum, QObject *parent)
@@ -66,6 +70,49 @@ void CapturePipeline::stop()
         m_spectrum->stop();
     m_device.reset();
     m_running = false;
+    std::lock_guard lock(m_segMutex);
+    m_segStartPath.clear();
+    m_segStopRequested = false;
+}
+
+void CapturePipeline::beginSegment(const QString &outputPath)
+{
+    std::lock_guard lock(m_segMutex);
+    m_segStartPath = outputPath;
+    m_segStopRequested = false;
+}
+
+void CapturePipeline::endSegment()
+{
+    std::lock_guard lock(m_segMutex);
+    m_segStopRequested = true;
+}
+
+RecordingMetadata CapturePipeline::makeMeta(const QString &outputPath,
+                                            const QDateTime &startUtc,
+                                            double sampleRateHz,
+                                            double bandwidthHz,
+                                            qint64 samples) const
+{
+    RecordingMetadata meta;
+    const DeviceInfo &info = m_device->info();
+    meta.file = QFileInfo(outputPath).fileName();
+    meta.format = SampleFormat::Cs16;
+    meta.deviceDriver = info.driver;
+    meta.deviceLabel = info.label;
+    meta.deviceSerial = info.serial;
+    meta.frequencyHz = m_plan.params.frequencyHz;
+    meta.sampleRateHz = sampleRateHz;
+    meta.bandwidthHz = bandwidthHz;
+    meta.rxGainDb = m_plan.params.gainDb;
+    meta.txGainDb = m_plan.txGainDb;
+    meta.startedUtc = startUtc;
+    meta.samples = samples;
+    meta.durationSec = sampleRateHz > 0.0 ? samples / sampleRateHz : 0.0;
+    meta.trigger = m_plan.trigger;
+    meta.concurrentTx = m_plan.concurrentTx;
+    meta.softwareVersion = QLatin1String(kVersion);
+    return meta;
 }
 
 void CapturePipeline::workerLoop(std::stop_token st)
@@ -89,6 +136,15 @@ void CapturePipeline::workerLoop(std::stop_token st)
     if (record)
         writer = std::make_unique<IqFileWriter>(m_plan.outputPath);
 
+    // A manual recording is trimmed to the capture range as it streams to disk,
+    // so the stored file only contains the band of interest (the live spectrum
+    // still gets the full-rate samples). Auto segments trim separately below.
+    BandTrimmer mainTrimmer(m_plan.params.sampleRateHz, m_plan.captureRangeHz);
+    const bool trimMain = record && !mainTrimmer.passthrough();
+    if (trimMain)
+        mainTrimmer.resetStream();
+    qint64 outSamples = 0;
+
     const qint64 targetSamples =
         m_plan.durationSec > 0.0
             ? static_cast<qint64>(m_plan.durationSec *
@@ -101,7 +157,58 @@ void CapturePipeline::workerLoop(std::stop_token st)
     auto lastProgress = clock::now();
     bool writeFailed = false;
 
+    // Auto-capture segment carved out of the running stream.
+    bool segActive = false;
+    QString segPath;
+    QDateTime segStart;
+    std::vector<Complex> segBuf;
+
+    const auto finalizeSegment = [&] {
+        if (!segActive)
+            return;
+        segActive = false;
+        const BandTrimmer trimmer(m_plan.params.sampleRateHz,
+                                  m_plan.captureRangeHz);
+        const std::vector<Complex> trimmed = trimmer.process(segBuf);
+        const double outRate = trimmer.outputRateHz();
+        const double bwHz = trimmer.passthrough() ? m_plan.params.bandwidthHz
+                                                  : trimmer.bandwidthHz();
+        {
+            IqFileWriter segWriter(segPath);
+            segWriter.write(std::span(trimmed.data(), trimmed.size()));
+            segWriter.finalize();
+        }
+        RecordingMetadata meta =
+            makeMeta(segPath, segStart, outRate, bwHz,
+                     static_cast<qint64>(trimmed.size()));
+        segBuf.clear();
+        segBuf.shrink_to_fit();
+        QMetaObject::invokeMethod(
+            this, [this, meta] { emit segmentFinished(meta); },
+            Qt::QueuedConnection);
+    };
+
     while (!st.stop_requested()) {
+        // Pick up any pending segment command before touching samples.
+        QString startPath;
+        bool stopSeg = false;
+        {
+            std::lock_guard lock(m_segMutex);
+            startPath = m_segStartPath;
+            m_segStartPath.clear();
+            stopSeg = m_segStopRequested;
+            m_segStopRequested = false;
+        }
+        if (!startPath.isEmpty()) {
+            finalizeSegment(); // close any segment still open
+            segActive = true;
+            segPath = startPath;
+            segStart = QDateTime::currentDateTimeUtc();
+            segBuf.clear();
+        }
+        if (stopSeg)
+            finalizeSegment();
+
         std::size_t want = chunk.size();
         if (targetSamples >= 0)
             want = std::min<std::size_t>(want,
@@ -111,9 +218,27 @@ void CapturePipeline::workerLoop(std::stop_token st)
             continue; // timeout/overflow; poll the stop token again
 
         m_spectrum->buffer()->write(std::span(chunk.data(), got));
-        if (writer && !writer->write(std::span(chunk.data(), got))) {
-            writeFailed = true;
-            break;
+        if (writer) {
+            bool ok = true;
+            if (trimMain) {
+                const std::vector<Complex> t =
+                    mainTrimmer.processStream(std::span(chunk.data(), got));
+                if (!t.empty()) {
+                    ok = writer->write(std::span(t.data(), t.size()));
+                    outSamples += static_cast<qint64>(t.size());
+                }
+            } else {
+                ok = writer->write(std::span(chunk.data(), got));
+            }
+            if (!ok) {
+                writeFailed = true;
+                break;
+            }
+        }
+        if (segActive) {
+            segBuf.insert(segBuf.end(), chunk.data(), chunk.data() + got);
+            if (static_cast<qint64>(segBuf.size()) >= kMaxSegmentSamples)
+                finalizeSegment(); // safety valve; splits an overlong signal
         }
         total += static_cast<qint64>(got);
 
@@ -127,28 +252,26 @@ void CapturePipeline::workerLoop(std::stop_token st)
         if (targetSamples >= 0 && total >= targetSamples)
             break;
     }
+    finalizeSegment(); // commit a segment left open at stop
     rx->stop();
 
     RecordingMetadata meta;
     if (writer) {
+        if (trimMain && !writeFailed) {
+            const std::vector<Complex> tail = mainTrimmer.flushStream();
+            if (!tail.empty()) {
+                writer->write(std::span(tail.data(), tail.size()));
+                outSamples += static_cast<qint64>(tail.size());
+            }
+        }
         writer->finalize();
-        const DeviceInfo &info = m_device->info();
-        meta.file = QFileInfo(m_plan.outputPath).fileName();
-        meta.format = SampleFormat::Cs16;
-        meta.deviceDriver = info.driver;
-        meta.deviceLabel = info.label;
-        meta.deviceSerial = info.serial;
-        meta.frequencyHz = m_plan.params.frequencyHz;
-        meta.sampleRateHz = m_plan.params.sampleRateHz;
-        meta.bandwidthHz = m_plan.params.bandwidthHz;
-        meta.rxGainDb = m_plan.params.gainDb;
-        meta.txGainDb = m_plan.txGainDb;
-        meta.startedUtc = startedUtc;
-        meta.samples = total;
-        meta.durationSec = total / m_plan.params.sampleRateHz;
-        meta.trigger = m_plan.trigger;
-        meta.concurrentTx = m_plan.concurrentTx;
-        meta.softwareVersion = QLatin1String(kVersion);
+        meta = trimMain
+                   ? makeMeta(m_plan.outputPath, startedUtc,
+                              mainTrimmer.outputRateHz(),
+                              mainTrimmer.bandwidthHz(), outSamples)
+                   : makeMeta(m_plan.outputPath, startedUtc,
+                              m_plan.params.sampleRateHz,
+                              m_plan.params.bandwidthHz, total);
     }
 
     QMetaObject::invokeMethod(

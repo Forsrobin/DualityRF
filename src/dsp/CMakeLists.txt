@@ -13,6 +13,8 @@ add_library(duality_dsp STATIC
     Measurements.cpp
     PeakDetector.h
     PeakDetector.cpp
+    BandTrimmer.h
+    BandTrimmer.cpp
 )
 
 target_link_libraries(duality_dsp

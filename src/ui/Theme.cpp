@@ -128,6 +128,8 @@ QDockWidget {
     titlebar-normal-icon: none;
 }
 QDockWidget::title {
+    background: #ffffff;
+    color: #000000;
     border: 1px solid #ffffff;
     padding: 6px;
     text-align: left;

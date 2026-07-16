@@ -29,6 +29,7 @@ signals:
 
 private slots:
     void onSelectionChanged();
+    void onContextMenu(const QPoint &pos);
 
 private:
     SessionStore *m_store;

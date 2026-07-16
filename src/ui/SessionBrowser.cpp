@@ -1,5 +1,7 @@
 #include "ui/SessionBrowser.h"
 
+#include <QMenu>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -25,8 +27,12 @@ SessionBrowser::SessionBrowser(SessionStore *store, QWidget *parent)
     layout->addWidget(m_tree, 1);
     layout->addWidget(m_newSessionButton);
 
+    m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
+
     connect(m_tree, &QTreeWidget::itemSelectionChanged, this,
             &SessionBrowser::onSelectionChanged);
+    connect(m_tree, &QTreeWidget::customContextMenuRequested, this,
+            &SessionBrowser::onContextMenu);
     connect(m_newSessionButton, &QPushButton::clicked, this,
             &SessionBrowser::newSessionRequested);
 
@@ -81,6 +87,50 @@ void SessionBrowser::onSelectionChanged()
         return;
     const Session &session = *m_sessions[sessionIdx];
     emit recordingSelected(session.dir(), session.recordings()[recIdx]);
+}
+
+void SessionBrowser::onContextMenu(const QPoint &pos)
+{
+    QTreeWidgetItem *item = m_tree->itemAt(pos);
+    if (!item)
+        return;
+    const int sessionIdx = item->data(0, kSessionRole).toInt();
+    const int recIdx = item->data(0, kRecordingRole).toInt();
+    if (sessionIdx < 0 || sessionIdx >= static_cast<int>(m_sessions.size()))
+        return;
+    Session &session = *m_sessions[sessionIdx];
+
+    QMenu menu(this);
+    if (recIdx >= 0) {
+        // On a recording row: delete just that recording.
+        const QString file = item->text(0);
+        QAction *act = menu.addAction(tr("Delete recording \"%1\"").arg(file));
+        if (menu.exec(m_tree->viewport()->mapToGlobal(pos)) == act) {
+            const auto reply = QMessageBox::question(
+                this, tr("Delete recording"),
+                tr("Permanently delete %1?").arg(file));
+            if (reply == QMessageBox::Yes) {
+                session.removeRecording(recIdx);
+                refresh();
+            }
+        }
+        return;
+    }
+
+    // On a session row: delete the whole session directory.
+    const QString dir = session.dir();
+    const QString name = session.name();
+    QAction *act = menu.addAction(tr("Delete session \"%1\"").arg(name));
+    if (menu.exec(m_tree->viewport()->mapToGlobal(pos)) == act) {
+        const auto reply = QMessageBox::question(
+            this, tr("Delete session"),
+            tr("Permanently delete session %1 and all its recordings?")
+                .arg(name));
+        if (reply == QMessageBox::Yes) {
+            m_store->deleteSession(dir);
+            refresh();
+        }
+    }
 }
 
 } // namespace duality

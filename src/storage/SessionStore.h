@@ -23,6 +23,9 @@ public:
 
     std::unique_ptr<Session> createSession() const;
 
+    // Permanently removes a session directory (must live under sessionsDir).
+    bool deleteSession(const QString &sessionDir) const;
+
 private:
     QString m_sessionsDir;
 };

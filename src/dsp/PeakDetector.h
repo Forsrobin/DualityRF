@@ -28,6 +28,13 @@ public:
     QVector<DetectedPeak> update(const QVector<float> &db,
                                  QVector<DetectedPeak> *appeared = nullptr);
 
+    // Instantaneous test: is any bin within [center ± halfWidthHz] above the
+    // threshold? Independent of the persistent tracks, so auto-capture can
+    // tell when a transmission starts and stops. halfWidthHz <= 0 scans the
+    // whole span.
+    bool signalPresent(const QVector<float> &db, double bandCenterHz,
+                       double halfWidthHz) const;
+
 private:
     QVector<DetectedPeak> current() const;
 

@@ -16,6 +16,7 @@
 #include <QDebug>
 #include <QDockWidget>
 #include <QLabel>
+#include <QScrollArea>
 #include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -33,7 +34,7 @@ MainWindow::MainWindow()
     : m_capture(&m_spectrumProcessor)
 {
     setWindowTitle(QStringLiteral("DUALITY RF"));
-    resize(1280, 800);
+    resize(1600, 920);
 
     // Central: live view (spectrum over waterfall) or debug workspace.
     m_spectrumView = new SpectrumWidget(this);
@@ -58,6 +59,8 @@ MainWindow::MainWindow()
             [this](const QVector<float> &row) {
                 m_spectrumView->setTrace(row);
                 m_waterfallView->addRow(row);
+                if (m_autoActive)
+                    driveAutoCapture(row);
                 if (!m_monitorLive)
                     return;
                 QVector<DetectedPeak> appeared;
@@ -102,6 +105,8 @@ MainWindow::MainWindow()
             });
     connect(&m_capture, &CapturePipeline::finished, this,
             &MainWindow::onCaptureFinished);
+    connect(&m_capture, &CapturePipeline::segmentFinished, this,
+            &MainWindow::onAutoSegmentSaved);
     connect(&m_capture, &CapturePipeline::errorOccurred, this,
             [this](const QString &msg) {
                 statusBar()->showMessage(msg);
@@ -154,8 +159,11 @@ MainWindow::MainWindow()
 
     connect(&m_transmit, &TransmitPipeline::errorOccurred, this,
             [this](const QString &msg) { statusBar()->showMessage(msg); });
+    connect(m_transmitPanel, &TransmitPanel::enabledChanged, this,
+            &MainWindow::onTransmitToggled);
 
     m_deviceManager.rescan();
+    updateCaptureRangeOverlay();
 }
 
 MainWindow::~MainWindow()
@@ -174,32 +182,54 @@ void MainWindow::createDocks()
     m_sessionBrowser = new SessionBrowser(&m_store, this);
 
     const auto addDock = [this](const QString &title, QWidget *widget,
-                                Qt::DockWidgetArea area) {
+                                Qt::DockWidgetArea area, bool scroll,
+                                int minWidth) {
         auto *dock = new QDockWidget(title, this);
         dock->setObjectName(title);
-        dock->setWidget(widget);
+        // The window style paints the default title text and ignores the
+        // stylesheet color, so use a plain label as the title bar to guarantee
+        // black-on-white headers.
+        auto *titleBar = new QLabel(title, dock);
+        titleBar->setStyleSheet(QStringLiteral(
+            "background:#ffffff; color:#000000; padding:6px; "
+            "border:1px solid #ffffff; font-weight:bold;"));
+        dock->setTitleBarWidget(titleBar);
+        if (scroll) {
+            // Wrap tall settings panels so the left column can scroll instead
+            // of squeezing the controls when several docks stack up.
+            auto *scrollArea = new QScrollArea(dock);
+            scrollArea->setWidget(widget);
+            scrollArea->setWidgetResizable(true);
+            scrollArea->setFrameShape(QFrame::NoFrame);
+            scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            dock->setWidget(scrollArea);
+        } else {
+            dock->setWidget(widget);
+        }
+        // A minimum on the dock is honored by the layout (a minimum on a panel
+        // inside a scroll area is not), so this reliably fixes the column
+        // widths.
+        dock->setMinimumWidth(minWidth);
         addDockWidget(area, dock);
         return dock;
     };
     QDockWidget *devicesDock =
-        addDock(tr("DEVICES"), m_devicePanel, Qt::LeftDockWidgetArea);
-    addDock(tr("CAPTURE"), m_capturePanel, Qt::LeftDockWidgetArea);
-    addDock(tr("CONCURRENT TX"), m_transmitPanel, Qt::LeftDockWidgetArea);
-    addDock(tr("SESSIONS"), m_sessionBrowser, Qt::RightDockWidgetArea);
-    addDock(tr("PLAYBACK"), m_playbackPanel, Qt::RightDockWidgetArea);
-
-    // Keep the settings column comfortable regardless of layout state.
-    m_devicePanel->setMinimumWidth(280);
-    m_capturePanel->setMinimumWidth(280);
-    m_transmitPanel->setMinimumWidth(280);
+        addDock(tr("DEVICES"), m_devicePanel, Qt::LeftDockWidgetArea, true, 520);
+    addDock(tr("CAPTURE"), m_capturePanel, Qt::LeftDockWidgetArea, true, 520);
+    addDock(tr("CONCURRENT TX"), m_transmitPanel, Qt::LeftDockWidgetArea, true,
+            520);
+    addDock(tr("SESSIONS"), m_sessionBrowser, Qt::RightDockWidgetArea, false,
+            380);
+    addDock(tr("PLAYBACK"), m_playbackPanel, Qt::RightDockWidgetArea, false,
+            380);
 
     QSettings settings;
     restoreGeometry(
-        settings.value(QStringLiteral("geometry/v2")).toByteArray());
+        settings.value(QStringLiteral("geometry/v5")).toByteArray());
     const QByteArray state =
-        settings.value(QStringLiteral("windowState/v2")).toByteArray();
+        settings.value(QStringLiteral("windowState/v5")).toByteArray();
     if (state.isEmpty() || !restoreState(state))
-        resizeDocks({devicesDock}, {380}, Qt::Horizontal);
+        resizeDocks({devicesDock}, {640}, Qt::Horizontal);
 }
 
 void MainWindow::createToolbar()
@@ -251,41 +281,36 @@ void MainWindow::startCapture(bool record)
         return;
     }
 
+    // Auto trigger + RECORD arms continuous per-transmission capture: the
+    // pipeline runs as a monitor and segments are carved out on detection.
+    const bool autoMode =
+        record && m_capturePanel->trigger() == QLatin1String("auto");
+
     CapturePipeline::Plan plan;
     plan.params = m_capturePanel->streamParams();
-    plan.durationSec = record ? m_capturePanel->durationSec() : 0.0;
     plan.trigger = m_capturePanel->trigger();
-    if (record)
+    plan.captureRangeHz = m_capturePanel->captureRangeHz();
+    if (record && !autoMode) {
+        plan.durationSec = m_capturePanel->durationSec();
         plan.outputPath = ensureSession()->nextRecordingPath();
+    }
 
-    // Optional concurrent waveform transmission on the same channel; runs
-    // for both monitor and record stages.
+    // Optional concurrent waveform transmission on the same channel; runs for
+    // both monitor and record stages and can be toggled live (see
+    // onTransmitToggled).
     if (m_transmitPanel->transmitEnabled()) {
-        const auto txInfo = m_devicePanel->selectedTx();
-        if (!txInfo) {
-            statusBar()->showMessage(
-                tr("Concurrent TX enabled but no transmitter selected"));
+        if (!startConcurrentTx(plan.params))
             return;
-        }
-        auto txDevice = m_deviceManager.open(*txInfo);
-        if (!txDevice) {
-            statusBar()->showMessage(
-                tr("Cannot open %1").arg(txInfo->displayName()));
-            return;
-        }
-        StreamParams txParams = plan.params;
-        txParams.gainDb = m_transmitPanel->txGainDb();
         const WaveformConfig waveform = m_transmitPanel->waveformConfig();
-        if (!m_transmit.start(std::move(txDevice), txParams, waveform))
-            return;
         plan.concurrentTx = waveform.describe();
-        plan.txGainDb = txParams.gainDb;
+        plan.txGainDb = m_transmitPanel->txGainDb();
     }
 
     if (!m_capture.start(std::move(rxDevice), plan)) {
         m_transmit.stop();
         return;
     }
+    m_activeCaptureParams = plan.params;
     m_spectrumView->setAxis(plan.params.frequencyHz, plan.params.sampleRateHz);
     m_spectrumView->setMarkers({});
     m_waterfallView->clear();
@@ -294,13 +319,117 @@ void MainWindow::startCapture(bool record)
     m_peakDetector.setThresholdDb(
         static_cast<float>(m_capturePanel->peakThresholdDb()));
     m_peakDetector.reset();
-    m_monitorLive = !record;
+    // Peak markers run for monitor and auto (both keep the live spectrum).
+    m_monitorLive = !record || autoMode;
+    if (autoMode)
+        startAutoCapture();
     m_capturePanel->setRunning(true);
-    statusBar()->showMessage(record ? tr("Recording…") : tr("Monitoring…"));
+    statusBar()->showMessage(autoMode ? tr("Auto capture armed…")
+                                      : record ? tr("Recording…")
+                                               : tr("Monitoring…"));
+}
+
+void MainWindow::startAutoCapture()
+{
+    m_autoActive = true;
+    m_autoPhase = AutoPhase::WaitSignal;
+    const StreamParams p = m_capturePanel->streamParams();
+    m_autoBandCenterHz = p.frequencyHz;
+    m_autoBandHalfHz = m_capturePanel->captureRangeHz();
+    ensureSession();
+}
+
+void MainWindow::driveAutoCapture(const QVector<float> &row)
+{
+    const bool present =
+        m_peakDetector.signalPresent(row, m_autoBandCenterHz, m_autoBandHalfHz);
+    const auto now = std::chrono::steady_clock::now();
+    switch (m_autoPhase) {
+    case AutoPhase::WaitSignal:
+        if (present) {
+            m_capture.beginSegment(ensureSession()->nextRecordingPath());
+            m_autoPhase = AutoPhase::Recording;
+            m_autoLastSignal = now;
+            statusBar()->showMessage(tr("Capturing transmission…"));
+        }
+        break;
+    case AutoPhase::Recording:
+        if (present) {
+            m_autoLastSignal = now;
+        } else if (now - m_autoLastSignal >= kAutoDebounce) {
+            // Signal has stayed gone for the full debounce: close the file.
+            m_capture.endSegment();
+            m_autoPhase = AutoPhase::Finalizing;
+        }
+        break;
+    case AutoPhase::Finalizing:
+        break; // waiting for the worker to trim + write the segment
+    }
+}
+
+void MainWindow::onAutoSegmentSaved(const RecordingMetadata &meta)
+{
+    if (Session *session = ensureSession()) {
+        session->addRecording(meta);
+        cacheRecordingSpectrum(meta);
+        m_sessionBrowser->refresh();
+    }
+    const QString when =
+        meta.startedUtc.toLocalTime().toString(QStringLiteral("HH:mm:ss"));
+    qInfo().noquote() << QDateTime::currentDateTime().toString(Qt::ISODate)
+                      << "Auto capture saved" << meta.file << "at" << when;
+    statusBar()->showMessage(tr("Saved %1 at %2 (%3 s, %4 kHz band)")
+                                 .arg(meta.file)
+                                 .arg(when)
+                                 .arg(meta.durationSec, 0, 'f', 2)
+                                 .arg(meta.bandwidthHz / 1e3, 0, 'f', 0));
+    // Re-arm for the next transmission; a segment finalized during stop
+    // (m_autoActive already false) is kept but does not re-arm.
+    if (m_autoActive)
+        m_autoPhase = AutoPhase::WaitSignal;
+}
+
+bool MainWindow::startConcurrentTx(const StreamParams &captureParams)
+{
+    const auto txInfo = m_devicePanel->selectedTx();
+    if (!txInfo) {
+        statusBar()->showMessage(
+            tr("Concurrent TX enabled but no transmitter selected"));
+        return false;
+    }
+    auto txDevice = m_deviceManager.open(*txInfo);
+    if (!txDevice) {
+        statusBar()->showMessage(
+            tr("Cannot open %1").arg(txInfo->displayName()));
+        return false;
+    }
+    StreamParams txParams = captureParams;
+    txParams.gainDb = m_transmitPanel->txGainDb();
+    const WaveformConfig waveform = m_transmitPanel->waveformConfig();
+    return m_transmit.start(std::move(txDevice), txParams, waveform);
+}
+
+void MainWindow::onTransmitToggled(bool enabled)
+{
+    // Only act while a capture is live; otherwise the toggle just configures
+    // what the next capture will start with.
+    if (!m_capture.running())
+        return;
+    if (enabled) {
+        if (startConcurrentTx(m_activeCaptureParams))
+            statusBar()->showMessage(tr("Concurrent TX started"));
+    } else {
+        m_transmit.stop();
+        statusBar()->showMessage(tr("Concurrent TX stopped"));
+    }
 }
 
 void MainWindow::stopCapture()
 {
+    // Clear the auto flag first so a segment finalized during stop is kept
+    // but does not re-arm the state machine.
+    m_autoActive = false;
+    m_autoPhase = AutoPhase::WaitSignal;
     m_capture.stop();
     m_transmit.stop();
     m_monitorLive = false;
@@ -308,16 +437,20 @@ void MainWindow::stopCapture()
     m_peakDetector.reset();
     m_spectrumView->setMarkers({});
     m_capturePanel->setRunning(false);
+    updateCaptureRangeOverlay();
     statusBar()->showMessage(tr("Stopped"));
 }
 
 void MainWindow::updateCaptureRangeOverlay()
 {
-    // Bandwidth "auto" (0) records the full sample-rate span.
     const StreamParams p = m_capturePanel->streamParams();
-    const double widthHz =
-        p.bandwidthHz > 0.0 ? p.bandwidthHz : p.sampleRateHz;
-    m_spectrumView->setCaptureRange(p.frequencyHz, widthHz);
+    // While idle the spectrum has no axis yet; drive it from the panel so the
+    // capture-range markers render before any capture starts.
+    if (!m_capture.running())
+        m_spectrumView->setAxis(p.frequencyHz, p.sampleRateHz);
+    // Two markers at frequency ± capture range delimit what a capture keeps.
+    m_spectrumView->setCaptureRange(p.frequencyHz,
+                                    2.0 * m_capturePanel->captureRangeHz());
 }
 
 void MainWindow::onCaptureFinished(const RecordingMetadata &meta,
@@ -390,8 +523,8 @@ void MainWindow::startPlayback(const QString &absPath,
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     QSettings settings;
-    settings.setValue(QStringLiteral("geometry/v2"), saveGeometry());
-    settings.setValue(QStringLiteral("windowState/v2"), saveState());
+    settings.setValue(QStringLiteral("geometry/v5"), saveGeometry());
+    settings.setValue(QStringLiteral("windowState/v5"), saveState());
     m_capture.stop();
     m_transmit.stop();
     m_playback.stop();

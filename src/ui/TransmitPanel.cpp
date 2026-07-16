@@ -93,6 +93,8 @@ TransmitPanel::TransmitPanel(QWidget *parent)
             &TransmitPanel::onTypeChanged);
     connect(m_browseButton, &QPushButton::clicked, this,
             &TransmitPanel::browseFile);
+    connect(m_group, &QGroupBox::toggled, this,
+            &TransmitPanel::enabledChanged);
     onTypeChanged();
 }
 

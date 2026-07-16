@@ -34,4 +34,15 @@ std::unique_ptr<Session> SessionStore::createSession() const
     return Session::create(m_sessionsDir);
 }
 
+bool SessionStore::deleteSession(const QString &sessionDir) const
+{
+    // Guard against deleting anything outside the managed Sessions directory.
+    const QString canonical = QDir(sessionDir).canonicalPath();
+    const QString root = QDir(m_sessionsDir).canonicalPath();
+    if (canonical.isEmpty() || root.isEmpty() ||
+        !canonical.startsWith(root + '/'))
+        return false;
+    return QDir(canonical).removeRecursively();
+}
+
 } // namespace duality

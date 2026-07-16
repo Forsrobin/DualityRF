@@ -31,7 +31,7 @@ PlaybackPanel::PlaybackPanel(QWidget *parent)
 
     m_gain->setRange(0.0, 60.0);
     m_gain->setDecimals(1);
-    m_gain->setValue(20.0);
+    m_gain->setValue(34.0);
     m_gain->setSuffix(tr(" dB"));
 
     m_speed->addItems({QStringLiteral("0.25x"), QStringLiteral("0.5x"),

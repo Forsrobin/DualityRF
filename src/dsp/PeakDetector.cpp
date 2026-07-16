@@ -33,6 +33,31 @@ QVector<DetectedPeak> PeakDetector::current() const
     return result;
 }
 
+bool PeakDetector::signalPresent(const QVector<float> &db, double bandCenterHz,
+                                 double halfWidthHz) const
+{
+    const int n = db.size();
+    if (n < 2 || m_spanHz <= 0.0)
+        return false;
+
+    int lo = 0;
+    int hi = n - 1;
+    if (halfWidthHz > 0.0) {
+        const auto freqToBin = [&](double hz) {
+            const double frac = 0.5 + (hz - m_centerHz) / m_spanHz;
+            return static_cast<int>(std::lround(frac * (n - 1)));
+        };
+        lo = std::clamp(freqToBin(bandCenterHz - halfWidthHz), 0, n - 1);
+        hi = std::clamp(freqToBin(bandCenterHz + halfWidthHz), 0, n - 1);
+        if (lo > hi)
+            std::swap(lo, hi);
+    }
+    for (int i = lo; i <= hi; ++i)
+        if (db[i] > m_thresholdDb)
+            return true;
+    return false;
+}
+
 QVector<DetectedPeak> PeakDetector::update(const QVector<float> &db,
                                            QVector<DetectedPeak> *appeared)
 {

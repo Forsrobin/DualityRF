@@ -24,6 +24,11 @@ public:
     WaveformConfig waveformConfig() const;
     double txGainDb() const;
 
+signals:
+    // Emitted when the user ticks/unticks the CONCURRENT TX group so a running
+    // capture can start or stop the transmission live.
+    void enabledChanged(bool enabled);
+
 private slots:
     void onTypeChanged();
     void browseFile();

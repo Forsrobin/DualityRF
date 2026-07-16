@@ -7,6 +7,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
+
+#include <algorithm>
 
 namespace duality {
 
@@ -94,15 +97,39 @@ QString Session::recordingPath(const RecordingMetadata &meta) const
 
 QString Session::nextRecordingPath() const
 {
-    return QStringLiteral("%1/recording_%2.iq")
-        .arg(m_dir)
-        .arg(m_recordings.size() + 1, 3, 10, QLatin1Char('0'));
+    // Number from the highest existing recording rather than the count so a
+    // deletion never causes the next capture to reuse (and overwrite) a name.
+    static const QRegularExpression re(QStringLiteral("recording_(\\d+)"));
+    int maxIdx = 0;
+    for (const RecordingMetadata &m : m_recordings) {
+        const auto match = re.match(m.file);
+        if (match.hasMatch())
+            maxIdx = std::max(maxIdx, match.captured(1).toInt());
+    }
+    int next = maxIdx + 1;
+    QString path;
+    do {
+        path = QStringLiteral("%1/recording_%2.iq")
+                   .arg(m_dir)
+                   .arg(next, 3, 10, QLatin1Char('0'));
+        ++next;
+    } while (QFile::exists(path));
+    return path;
 }
 
 void Session::addRecording(const RecordingMetadata &meta)
 {
     m_recordings.append(meta);
     saveMetadata();
+}
+
+bool Session::removeRecording(int index)
+{
+    if (index < 0 || index >= m_recordings.size())
+        return false;
+    QFile::remove(recordingPath(m_recordings[index]));
+    m_recordings.removeAt(index);
+    return saveMetadata();
 }
 
 bool Session::saveMetadata() const

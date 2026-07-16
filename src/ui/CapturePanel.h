@@ -21,6 +21,9 @@ public:
     double durationSec() const;
     QString trigger() const;
     double peakThresholdDb() const;
+    // ± capture range (half-width) in Hz, used for the spectrum overlay and to
+    // trim auto-captured segments.
+    double captureRangeHz() const;
 
     void setRunning(bool running);
 
@@ -40,6 +43,7 @@ private:
     QDoubleSpinBox *m_gain;
     QDoubleSpinBox *m_duration;
     QDoubleSpinBox *m_peakThreshold;
+    QDoubleSpinBox *m_captureRange;
     QComboBox *m_trigger;
     QPushButton *m_monitorButton;
     QPushButton *m_recordButton;

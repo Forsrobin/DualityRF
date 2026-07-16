@@ -31,6 +31,8 @@ public:
     QString nextRecordingPath() const;
 
     void addRecording(const RecordingMetadata &meta);
+    // Deletes the recording's IQ file and drops it from the metadata.
+    bool removeRecording(int index);
 
     FftCache &fftCache() { return m_fftCache; }
 
