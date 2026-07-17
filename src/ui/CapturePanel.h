@@ -24,6 +24,9 @@ public:
     // ± capture range (half-width) in Hz, used for the spectrum overlay and to
     // trim auto-captured segments.
     double captureRangeHz() const;
+    // How long an auto segment stays open after the signal drops below
+    // threshold, bridging modulation gaps so one transmission is not split.
+    double hangTimeMs() const;
 
     void setRunning(bool running);
 
@@ -44,6 +47,7 @@ private:
     QDoubleSpinBox *m_duration;
     QDoubleSpinBox *m_peakThreshold;
     QDoubleSpinBox *m_captureRange;
+    QDoubleSpinBox *m_hangTime;
     QComboBox *m_trigger;
     QPushButton *m_monitorButton;
     QPushButton *m_recordButton;

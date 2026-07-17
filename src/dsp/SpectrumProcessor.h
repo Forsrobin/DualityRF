@@ -38,6 +38,10 @@ public:
 
 signals:
     void spectrumReady(const QVector<float> &dbRow);
+    // The same frame before exponential averaging. Auto-capture keys off this
+    // so its start/stop timing tracks the real envelope instead of the smoothed
+    // trace's slow attack and decay.
+    void detectionRowReady(const QVector<float> &dbRow);
 
 private:
     void workerLoop(std::stop_token st, Config config);

@@ -36,6 +36,12 @@ QVector<DetectedPeak> PeakDetector::current() const
 bool PeakDetector::signalPresent(const QVector<float> &db, double bandCenterHz,
                                  double halfWidthHz) const
 {
+    return signalPresent(db, bandCenterHz, halfWidthHz, m_thresholdDb);
+}
+
+bool PeakDetector::signalPresent(const QVector<float> &db, double bandCenterHz,
+                                 double halfWidthHz, float thresholdDb) const
+{
     const int n = db.size();
     if (n < 2 || m_spanHz <= 0.0)
         return false;
@@ -53,7 +59,7 @@ bool PeakDetector::signalPresent(const QVector<float> &db, double bandCenterHz,
             std::swap(lo, hi);
     }
     for (int i = lo; i <= hi; ++i)
-        if (db[i] > m_thresholdDb)
+        if (db[i] > thresholdDb)
             return true;
     return false;
 }

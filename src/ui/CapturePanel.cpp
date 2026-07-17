@@ -15,6 +15,7 @@ const auto kFrequencyKey = QStringLiteral("capture/frequencyMHz");
 const auto kPeakThresholdKey = QStringLiteral("capture/peakThresholdDb");
 const auto kDurationKey = QStringLiteral("capture/durationSec");
 const auto kCaptureRangeKey = QStringLiteral("capture/rangeKHz");
+const auto kHangTimeKey = QStringLiteral("capture/hangTimeMs");
 
 } // namespace
 
@@ -27,6 +28,7 @@ CapturePanel::CapturePanel(QWidget *parent)
     , m_duration(new QDoubleSpinBox(this))
     , m_peakThreshold(new QDoubleSpinBox(this))
     , m_captureRange(new QDoubleSpinBox(this))
+    , m_hangTime(new QDoubleSpinBox(this))
     , m_trigger(new QComboBox(this))
     , m_monitorButton(new QPushButton(tr("MONITOR"), this))
     , m_recordButton(new QPushButton(tr("RECORD"), this))
@@ -72,6 +74,12 @@ CapturePanel::CapturePanel(QWidget *parent)
     m_captureRange->setPrefix(tr("± "));
     m_captureRange->setSuffix(tr(" kHz"));
 
+    m_hangTime->setRange(50.0, 5000.0);
+    m_hangTime->setDecimals(0);
+    m_hangTime->setSingleStep(50.0);
+    m_hangTime->setValue(500.0);
+    m_hangTime->setSuffix(tr(" ms"));
+
     m_trigger->addItems({tr("manual"), tr("auto")});
 
     auto *layout = new QFormLayout(this);
@@ -83,6 +91,7 @@ CapturePanel::CapturePanel(QWidget *parent)
     layout->addRow(tr("Duration"), m_duration);
     layout->addRow(tr("Peak level"), m_peakThreshold);
     layout->addRow(tr("Capture range"), m_captureRange);
+    layout->addRow(tr("Hang time"), m_hangTime);
     layout->addRow(tr("Trigger"), m_trigger);
     layout->addRow(m_monitorButton);
     layout->addRow(m_recordButton);
@@ -112,6 +121,8 @@ CapturePanel::CapturePanel(QWidget *parent)
         settings.value(kDurationKey, m_duration->value()).toDouble());
     m_captureRange->setValue(
         settings.value(kCaptureRangeKey, m_captureRange->value()).toDouble());
+    m_hangTime->setValue(
+        settings.value(kHangTimeKey, m_hangTime->value()).toDouble());
     const auto persist = [this](QDoubleSpinBox *box, const QString &key) {
         connect(box, &QDoubleSpinBox::valueChanged, this,
                 [key](double value) { QSettings().setValue(key, value); });
@@ -120,6 +131,7 @@ CapturePanel::CapturePanel(QWidget *parent)
     persist(m_peakThreshold, kPeakThresholdKey);
     persist(m_duration, kDurationKey);
     persist(m_captureRange, kCaptureRangeKey);
+    persist(m_hangTime, kHangTimeKey);
 
     setRunning(false);
 }
@@ -152,6 +164,11 @@ double CapturePanel::peakThresholdDb() const
 double CapturePanel::captureRangeHz() const
 {
     return m_captureRange->value() * 1e3;
+}
+
+double CapturePanel::hangTimeMs() const
+{
+    return m_hangTime->value();
 }
 
 void CapturePanel::setRunning(bool running)

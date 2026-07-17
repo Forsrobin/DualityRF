@@ -31,9 +31,13 @@ public:
     // Instantaneous test: is any bin within [center ± halfWidthHz] above the
     // threshold? Independent of the persistent tracks, so auto-capture can
     // tell when a transmission starts and stops. halfWidthHz <= 0 scans the
-    // whole span.
+    // whole span. The overload takes an explicit threshold so a caller can use
+    // separate on/off levels (hysteresis) without disturbing the marker
+    // threshold set via setThresholdDb().
     bool signalPresent(const QVector<float> &db, double bandCenterHz,
                        double halfWidthHz) const;
+    bool signalPresent(const QVector<float> &db, double bandCenterHz,
+                       double halfWidthHz, float thresholdDb) const;
 
 private:
     QVector<DetectedPeak> current() const;

@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QFileInfo>
 
+#include <algorithm>
 #include <chrono>
 #include <vector>
 
@@ -73,6 +74,7 @@ void CapturePipeline::stop()
     std::lock_guard lock(m_segMutex);
     m_segStartPath.clear();
     m_segStopRequested = false;
+    m_segDropTrailing = 0;
 }
 
 void CapturePipeline::beginSegment(const QString &outputPath)
@@ -82,10 +84,11 @@ void CapturePipeline::beginSegment(const QString &outputPath)
     m_segStopRequested = false;
 }
 
-void CapturePipeline::endSegment()
+void CapturePipeline::endSegment(qint64 dropTrailingSamples)
 {
     std::lock_guard lock(m_segMutex);
     m_segStopRequested = true;
+    m_segDropTrailing = std::max<qint64>(0, dropTrailingSamples);
 }
 
 RecordingMetadata CapturePipeline::makeMeta(const QString &outputPath,
@@ -162,14 +165,37 @@ void CapturePipeline::workerLoop(std::stop_token st)
     QString segPath;
     QDateTime segStart;
     std::vector<Complex> segBuf;
+    // Rolling tail of the most recent samples, kept while no segment is open so
+    // a segment can be seeded with pre-roll and not clip a signal's onset.
+    std::vector<Complex> preRoll;
+    const std::size_t preRollCap =
+        static_cast<std::size_t>(std::max<qint64>(0, m_plan.preRollSamples));
 
-    const auto finalizeSegment = [&] {
+    const auto finalizeSegment = [&](qint64 dropTrailing) {
         if (!segActive)
             return;
         segActive = false;
+        // Drop the trailing hang samples the state machine held open, then
+        // band-trim what remains.
+        const std::size_t drop = std::min<std::size_t>(
+            static_cast<std::size_t>(std::max<qint64>(0, dropTrailing)),
+            segBuf.size());
+        segBuf.resize(segBuf.size() - drop);
         const BandTrimmer trimmer(m_plan.params.sampleRateHz,
                                   m_plan.captureRangeHz);
         const std::vector<Complex> trimmed = trimmer.process(segBuf);
+        segBuf.clear();
+        segBuf.shrink_to_fit();
+
+        // Too short to be a real transmission: drop it so no empty/near-silent
+        // file lands in the session.
+        if (static_cast<qint64>(trimmed.size()) < m_plan.minSegmentSamples) {
+            QMetaObject::invokeMethod(
+                this, [this] { emit segmentDiscarded(); },
+                Qt::QueuedConnection);
+            return;
+        }
+
         const double outRate = trimmer.outputRateHz();
         const double bwHz = trimmer.passthrough() ? m_plan.params.bandwidthHz
                                                   : trimmer.bandwidthHz();
@@ -181,8 +207,6 @@ void CapturePipeline::workerLoop(std::stop_token st)
         RecordingMetadata meta =
             makeMeta(segPath, segStart, outRate, bwHz,
                      static_cast<qint64>(trimmed.size()));
-        segBuf.clear();
-        segBuf.shrink_to_fit();
         QMetaObject::invokeMethod(
             this, [this, meta] { emit segmentFinished(meta); },
             Qt::QueuedConnection);
@@ -192,22 +216,32 @@ void CapturePipeline::workerLoop(std::stop_token st)
         // Pick up any pending segment command before touching samples.
         QString startPath;
         bool stopSeg = false;
+        qint64 dropTrailing = 0;
         {
             std::lock_guard lock(m_segMutex);
             startPath = m_segStartPath;
             m_segStartPath.clear();
             stopSeg = m_segStopRequested;
             m_segStopRequested = false;
+            dropTrailing = m_segDropTrailing;
+            m_segDropTrailing = 0;
         }
         if (!startPath.isEmpty()) {
-            finalizeSegment(); // close any segment still open
+            finalizeSegment(0); // close any segment still open
             segActive = true;
             segPath = startPath;
             segStart = QDateTime::currentDateTimeUtc();
-            segBuf.clear();
+            // Seed with the pre-roll captured just before onset, backdating the
+            // start time to match.
+            segBuf = preRoll;
+            const double rate = m_plan.params.sampleRateHz;
+            if (rate > 0.0 && !preRoll.empty())
+                segStart = segStart.addMSecs(
+                    -static_cast<qint64>(preRoll.size() * 1000.0 / rate));
+            preRoll.clear(); // rebuilt fresh after this segment closes
         }
         if (stopSeg)
-            finalizeSegment();
+            finalizeSegment(dropTrailing);
 
         std::size_t want = chunk.size();
         if (targetSamples >= 0)
@@ -238,7 +272,14 @@ void CapturePipeline::workerLoop(std::stop_token st)
         if (segActive) {
             segBuf.insert(segBuf.end(), chunk.data(), chunk.data() + got);
             if (static_cast<qint64>(segBuf.size()) >= kMaxSegmentSamples)
-                finalizeSegment(); // safety valve; splits an overlong signal
+                finalizeSegment(0); // safety valve; splits an overlong signal
+        } else if (preRollCap > 0) {
+            // Keep the most recent preRollCap samples ready to seed the next
+            // segment.
+            preRoll.insert(preRoll.end(), chunk.data(), chunk.data() + got);
+            if (preRoll.size() > preRollCap)
+                preRoll.erase(preRoll.begin(),
+                              preRoll.begin() + (preRoll.size() - preRollCap));
         }
         total += static_cast<qint64>(got);
 
@@ -252,7 +293,7 @@ void CapturePipeline::workerLoop(std::stop_token st)
         if (targetSamples >= 0 && total >= targetSamples)
             break;
     }
-    finalizeSegment(); // commit a segment left open at stop
+    finalizeSegment(0); // commit a segment left open at stop
     rx->stop();
 
     RecordingMetadata meta;

@@ -23,6 +23,9 @@
 #include <QStatusBar>
 #include <QToolBar>
 
+#include <algorithm>
+#include <chrono>
+
 namespace duality {
 
 namespace {
@@ -59,8 +62,6 @@ MainWindow::MainWindow()
             [this](const QVector<float> &row) {
                 m_spectrumView->setTrace(row);
                 m_waterfallView->addRow(row);
-                if (m_autoActive)
-                    driveAutoCapture(row);
                 if (!m_monitorLive)
                     return;
                 QVector<DetectedPeak> appeared;
@@ -81,6 +82,14 @@ MainWindow::MainWindow()
                         << entry;
                     statusBar()->showMessage(entry, 3000);
                 }
+            });
+
+    // Auto-capture keys off the instantaneous (un-averaged) frame so its
+    // start/stop timing tracks the real envelope, not the smoothed trace.
+    connect(&m_spectrumProcessor, &SpectrumProcessor::detectionRowReady, this,
+            [this](const QVector<float> &row) {
+                if (m_autoActive)
+                    driveAutoCapture(row);
             });
 
     // Capture stage.
@@ -107,6 +116,8 @@ MainWindow::MainWindow()
             &MainWindow::onCaptureFinished);
     connect(&m_capture, &CapturePipeline::segmentFinished, this,
             &MainWindow::onAutoSegmentSaved);
+    connect(&m_capture, &CapturePipeline::segmentDiscarded, this,
+            &MainWindow::rearmAuto);
     connect(&m_capture, &CapturePipeline::errorOccurred, this,
             [this](const QString &msg) {
                 statusBar()->showMessage(msg);
@@ -290,6 +301,14 @@ void MainWindow::startCapture(bool record)
     plan.params = m_capturePanel->streamParams();
     plan.trigger = m_capturePanel->trigger();
     plan.captureRangeHz = m_capturePanel->captureRangeHz();
+    if (autoMode) {
+        const double rate = plan.params.sampleRateHz;
+        const auto msToSamples = [rate](std::chrono::milliseconds ms) {
+            return static_cast<qint64>(rate * ms.count() / 1000.0);
+        };
+        plan.preRollSamples = msToSamples(kAutoPreRoll);
+        plan.minSegmentSamples = msToSamples(kAutoMinSegment);
+    }
     if (record && !autoMode) {
         plan.durationSec = m_capturePanel->durationSec();
         plan.outputPath = ensureSession()->nextRecordingPath();
@@ -336,17 +355,23 @@ void MainWindow::startAutoCapture()
     const StreamParams p = m_capturePanel->streamParams();
     m_autoBandCenterHz = p.frequencyHz;
     m_autoBandHalfHz = m_capturePanel->captureRangeHz();
+    m_autoSampleRateHz = p.sampleRateHz;
+    m_autoOnThresholdDb = static_cast<float>(m_capturePanel->peakThresholdDb());
+    m_autoOffThresholdDb = m_autoOnThresholdDb - kAutoHysteresisDb;
+    m_autoHangTime = std::chrono::milliseconds(
+        static_cast<qint64>(m_capturePanel->hangTimeMs()));
     ensureSession();
 }
 
 void MainWindow::driveAutoCapture(const QVector<float> &row)
 {
-    const bool present =
-        m_peakDetector.signalPresent(row, m_autoBandCenterHz, m_autoBandHalfHz);
     const auto now = std::chrono::steady_clock::now();
     switch (m_autoPhase) {
     case AutoPhase::WaitSignal:
-        if (present) {
+        // Open on the higher on-threshold so noise near the level does not arm.
+        if (m_peakDetector.signalPresent(row, m_autoBandCenterHz,
+                                         m_autoBandHalfHz,
+                                         m_autoOnThresholdDb)) {
             m_capture.beginSegment(ensureSession()->nextRecordingPath());
             m_autoPhase = AutoPhase::Recording;
             m_autoLastSignal = now;
@@ -354,11 +379,22 @@ void MainWindow::driveAutoCapture(const QVector<float> &row)
         }
         break;
     case AutoPhase::Recording:
-        if (present) {
+        // Hold open on the lower off-threshold (hysteresis) and only close
+        // after the signal has stayed gone for the full hang time.
+        if (m_peakDetector.signalPresent(row, m_autoBandCenterHz,
+                                         m_autoBandHalfHz,
+                                         m_autoOffThresholdDb)) {
             m_autoLastSignal = now;
-        } else if (now - m_autoLastSignal >= kAutoDebounce) {
-            // Signal has stayed gone for the full debounce: close the file.
-            m_capture.endSegment();
+        } else if (now - m_autoLastSignal >= m_autoHangTime) {
+            // Drop the silence held open past the signal (the hang window minus
+            // a small post-roll) so the stored file ends near the transmission.
+            const auto silence =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - m_autoLastSignal);
+            const auto drop = silence - std::min(silence, kAutoPostPad);
+            const qint64 dropSamples = static_cast<qint64>(
+                m_autoSampleRateHz * drop.count() / 1000.0);
+            m_capture.endSegment(dropSamples);
             m_autoPhase = AutoPhase::Finalizing;
         }
         break;
@@ -383,8 +419,13 @@ void MainWindow::onAutoSegmentSaved(const RecordingMetadata &meta)
                                  .arg(when)
                                  .arg(meta.durationSec, 0, 'f', 2)
                                  .arg(meta.bandwidthHz / 1e3, 0, 'f', 0));
+    rearmAuto();
+}
+
+void MainWindow::rearmAuto()
+{
     // Re-arm for the next transmission; a segment finalized during stop
-    // (m_autoActive already false) is kept but does not re-arm.
+    // (m_autoActive already false) does not re-arm.
     if (m_autoActive)
         m_autoPhase = AutoPhase::WaitSignal;
 }

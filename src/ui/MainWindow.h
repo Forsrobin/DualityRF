@@ -64,6 +64,8 @@ private:
     void startAutoCapture();
     void driveAutoCapture(const QVector<float> &row);
     void onAutoSegmentSaved(const RecordingMetadata &meta);
+    // Re-arm for the next transmission after a segment was saved or dropped.
+    void rearmAuto();
 
     // Services
     DeviceManager m_deviceManager;
@@ -77,8 +79,19 @@ private:
     AutoPhase m_autoPhase = AutoPhase::WaitSignal;
     double m_autoBandCenterHz = 0.0;
     double m_autoBandHalfHz = 0.0;
+    double m_autoSampleRateHz = 0.0;
+    // Separate on/off levels give the presence test hysteresis so an envelope
+    // that hovers near the threshold does not chatter the state machine.
+    float m_autoOnThresholdDb = 0.0f;
+    float m_autoOffThresholdDb = 0.0f;
+    // Time the segment stays open after the signal drops (bridges modulation
+    // gaps). Set from the panel when auto-capture starts.
+    std::chrono::milliseconds m_autoHangTime{500};
     std::chrono::steady_clock::time_point m_autoLastSignal;
-    static constexpr auto kAutoDebounce = std::chrono::milliseconds(300);
+    static constexpr float kAutoHysteresisDb = 6.0f;
+    static constexpr auto kAutoPreRoll = std::chrono::milliseconds(100);
+    static constexpr auto kAutoPostPad = std::chrono::milliseconds(100);
+    static constexpr auto kAutoMinSegment = std::chrono::milliseconds(150);
     CapturePipeline m_capture;
     PlaybackPipeline m_playback;
     TransmitPipeline m_transmit;

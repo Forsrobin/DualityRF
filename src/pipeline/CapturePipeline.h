@@ -31,6 +31,12 @@ public:
         // Half-width (± Hz) each auto-capture segment is trimmed to before it
         // is written. 0 disables trimming (keeps the full stream).
         double captureRangeHz = 0.0;
+        // Samples kept from just before a segment opens, so a detection that
+        // lags the real onset does not clip the start of the transmission.
+        qint64 preRollSamples = 0;
+        // Segments shorter than this after trimming are discarded rather than
+        // written, so brief noise blips never become empty/near-silent files.
+        qint64 minSegmentSamples = 0;
     };
 
     explicit CapturePipeline(SpectrumProcessor *spectrum,
@@ -46,7 +52,10 @@ public:
     // segment buffers its samples, trims them to plan.captureRangeHz on end,
     // and writes one file. Safe to call from the main thread while running.
     void beginSegment(const QString &outputPath);
-    void endSegment();
+    // Close the open segment. dropTrailingSamples is trimmed off the end before
+    // writing, so the hang time held open to bridge modulation gaps does not
+    // leave a silent tail on the stored file.
+    void endSegment(qint64 dropTrailingSamples = 0);
 
 signals:
     void started(bool recording);
@@ -54,6 +63,9 @@ signals:
     void finished(const duality::RecordingMetadata &meta, bool wasRecording);
     // One auto-capture segment finished and was written to disk.
     void segmentFinished(const duality::RecordingMetadata &meta);
+    // An opened segment was closed but too short to keep, so nothing was
+    // written. The state machine uses this to re-arm without a recording.
+    void segmentDiscarded();
     void errorOccurred(const QString &message);
 
 private:
@@ -72,6 +84,7 @@ private:
     std::mutex m_segMutex;
     QString m_segStartPath;
     bool m_segStopRequested = false;
+    qint64 m_segDropTrailing = 0;
 };
 
 } // namespace duality

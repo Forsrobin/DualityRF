@@ -85,6 +85,7 @@ void SpectrumProcessor::workerLoop(std::stop_token st, Config config)
         }
 
         lastEmit = clock::now();
+        emit detectionRowReady(row);
         emit spectrumReady(averaged);
     }
 }

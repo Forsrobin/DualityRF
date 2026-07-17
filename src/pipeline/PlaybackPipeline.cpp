@@ -4,6 +4,7 @@
 #include "storage/IqFileReader.h"
 
 #include <chrono>
+#include <thread>
 #include <vector>
 
 namespace duality {
@@ -91,7 +92,16 @@ void PlaybackPipeline::workerLoop(std::stop_token st, QString filePath,
         reader.totalSamples() / params.stream.sampleRateHz;
     std::vector<Complex> chunk(kChunkSamples);
     qint64 sent = 0;
-    auto lastProgress = clock::now();
+    const auto txStart = clock::now();
+    auto lastProgress = txStart;
+
+    const auto emitProgress = [&] {
+        const double sec = effectiveRate > 0.0 ? sent / effectiveRate : 0.0;
+        QMetaObject::invokeMethod(
+            this, [this, sec, totalSeconds] { emit progress(sec, totalSeconds); },
+            Qt::QueuedConnection);
+    };
+    emitProgress(); // show 0 / total immediately, even for a very short file
 
     while (!st.stop_requested()) {
         const std::size_t got = reader.read(chunk);
@@ -112,11 +122,27 @@ void PlaybackPipeline::workerLoop(std::stop_token st, QString filePath,
 
         if (clock::now() - lastProgress > std::chrono::milliseconds(200)) {
             lastProgress = clock::now();
-            const double sec = sent / effectiveRate;
-            QMetaObject::invokeMethod(
-                this,
-                [this, sec, totalSeconds] { emit progress(sec, totalSeconds); },
-                Qt::QueuedConnection);
+            emitProgress();
+        }
+    }
+
+    // The hardware (e.g. HackRF) accepts samples into a buffer faster than real
+    // time and drops whatever is still buffered when the stream is torn down.
+    // For a short clip the whole file can be buffered in well under its own
+    // duration, so tearing down immediately would transmit nothing. Wait until
+    // enough wall-clock has passed to radiate everything we wrote before
+    // stopping. A user-requested stop skips the drain.
+    if (!st.stop_requested() && effectiveRate > 0.0) {
+        const auto playTime = std::chrono::duration<double>(sent / effectiveRate);
+        const auto until = txStart +
+                           std::chrono::duration_cast<clock::duration>(playTime) +
+                           std::chrono::milliseconds(100); // buffer/USB latency
+        while (!st.stop_requested() && clock::now() < until) {
+            if (clock::now() - lastProgress > std::chrono::milliseconds(200)) {
+                lastProgress = clock::now();
+                emitProgress();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
     tx->stop();
