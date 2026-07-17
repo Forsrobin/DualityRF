@@ -342,6 +342,11 @@ void MainWindow::startCapture(bool record)
     m_monitorLive = !record || autoMode;
     if (autoMode)
         startAutoCapture();
+    // Replay mode (auto record only): count segments so the second one triggers
+    // the switch to monitor-and-replay.
+    m_replayActive = record && autoMode && m_capturePanel->replayMode();
+    m_replaySegmentCount = 0;
+    m_replayFirstPath.clear();
     m_capturePanel->setRunning(true);
     statusBar()->showMessage(autoMode ? tr("Auto capture armed…")
                                       : record ? tr("Recording…")
@@ -405,7 +410,8 @@ void MainWindow::driveAutoCapture(const QVector<float> &row)
 
 void MainWindow::onAutoSegmentSaved(const RecordingMetadata &meta)
 {
-    if (Session *session = ensureSession()) {
+    Session *session = ensureSession();
+    if (session) {
         session->addRecording(meta);
         cacheRecordingSpectrum(meta);
         m_sessionBrowser->refresh();
@@ -419,7 +425,45 @@ void MainWindow::onAutoSegmentSaved(const RecordingMetadata &meta)
                                  .arg(when)
                                  .arg(meta.durationSec, 0, 'f', 2)
                                  .arg(meta.bandwidthHz / 1e3, 0, 'f', 0));
+
+    if (m_replayActive) {
+        ++m_replaySegmentCount;
+        if (m_replaySegmentCount == 1) {
+            // Remember the first signal to replay once the second arrives.
+            m_replayFirstMeta = meta;
+            m_replayFirstPath = session ? session->recordingPath(meta) : QString();
+        } else if (m_replaySegmentCount >= 2) {
+            enterReplayMonitor(); // leaves auto capture; do not re-arm
+            return;
+        }
+    }
     rearmAuto();
+}
+
+void MainWindow::enterReplayMonitor()
+{
+    m_replayActive = false;
+
+    // Drop the concurrent TX noise (and reflect it in the panel). Unticking
+    // while the capture is live stops the stream via onTransmitToggled; the
+    // extra stop() covers the case where it was never enabled.
+    if (m_transmitPanel->transmitEnabled())
+        m_transmitPanel->setTransmitEnabled(false);
+    m_transmit.stop();
+
+    // Leave segment capture: the pipeline keeps receiving, now a plain monitor.
+    m_autoActive = false;
+    m_autoPhase = AutoPhase::WaitSignal;
+
+    // Replay the first captured signal on the transmitter.
+    if (m_replayFirstPath.isEmpty()) {
+        statusBar()->showMessage(tr("Replay mode: no signal to replay"));
+        return;
+    }
+    m_playbackPanel->setRecording(m_replayFirstMeta, m_replayFirstPath);
+    startPlayback(m_replayFirstPath, m_playbackPanel->streamParams(),
+                  m_replayFirstMeta.format, m_playbackPanel->speed(),
+                  m_playbackPanel->repeat());
 }
 
 void MainWindow::rearmAuto()
@@ -471,6 +515,7 @@ void MainWindow::stopCapture()
     // but does not re-arm the state machine.
     m_autoActive = false;
     m_autoPhase = AutoPhase::WaitSignal;
+    m_replayActive = false;
     m_capture.stop();
     m_transmit.stop();
     m_monitorLive = false;

@@ -123,6 +123,11 @@ bool TransmitPanel::transmitEnabled() const
     return m_group->isChecked();
 }
 
+void TransmitPanel::setTransmitEnabled(bool enabled)
+{
+    m_group->setChecked(enabled);
+}
+
 WaveformConfig TransmitPanel::waveformConfig() const
 {
     WaveformConfig cfg;

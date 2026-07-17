@@ -66,6 +66,9 @@ private:
     void onAutoSegmentSaved(const RecordingMetadata &meta);
     // Re-arm for the next transmission after a segment was saved or dropped.
     void rearmAuto();
+    // Replay mode: after two auto segments, stop the concurrent TX noise, drop
+    // out of segment capture into a plain monitor, and replay the first signal.
+    void enterReplayMonitor();
 
     // Services
     DeviceManager m_deviceManager;
@@ -92,6 +95,12 @@ private:
     static constexpr auto kAutoPreRoll = std::chrono::milliseconds(100);
     static constexpr auto kAutoPostPad = std::chrono::milliseconds(100);
     static constexpr auto kAutoMinSegment = std::chrono::milliseconds(150);
+
+    // Replay-mode session state (armed by the panel's REPLAY MODE button).
+    bool m_replayActive = false;
+    int m_replaySegmentCount = 0;
+    RecordingMetadata m_replayFirstMeta;
+    QString m_replayFirstPath;
     CapturePipeline m_capture;
     PlaybackPipeline m_playback;
     TransmitPipeline m_transmit;

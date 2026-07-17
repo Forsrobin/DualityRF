@@ -27,6 +27,9 @@ public:
     // How long an auto segment stays open after the signal drops below
     // threshold, bridging modulation gaps so one transmission is not split.
     double hangTimeMs() const;
+    // Replay mode: capture two auto segments, then drop concurrent TX, switch
+    // to monitor and replay the first. Forces (and locks) the trigger to auto.
+    bool replayMode() const;
 
     void setRunning(bool running);
 
@@ -49,6 +52,7 @@ private:
     QDoubleSpinBox *m_captureRange;
     QDoubleSpinBox *m_hangTime;
     QComboBox *m_trigger;
+    QPushButton *m_replayMode;
     QPushButton *m_monitorButton;
     QPushButton *m_recordButton;
     QPushButton *m_stopButton;

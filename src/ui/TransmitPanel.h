@@ -21,6 +21,9 @@ public:
     explicit TransmitPanel(QWidget *parent = nullptr);
 
     bool transmitEnabled() const;
+    // Programmatically tick/untick the CONCURRENT TX group (emits
+    // enabledChanged like a user click).
+    void setTransmitEnabled(bool enabled);
     WaveformConfig waveformConfig() const;
     double txGainDb() const;
 

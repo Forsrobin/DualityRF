@@ -30,6 +30,7 @@ CapturePanel::CapturePanel(QWidget *parent)
     , m_captureRange(new QDoubleSpinBox(this))
     , m_hangTime(new QDoubleSpinBox(this))
     , m_trigger(new QComboBox(this))
+    , m_replayMode(new QPushButton(tr("REPLAY MODE"), this))
     , m_monitorButton(new QPushButton(tr("MONITOR"), this))
     , m_recordButton(new QPushButton(tr("RECORD"), this))
     , m_stopButton(new QPushButton(tr("STOP"), this))
@@ -82,6 +83,8 @@ CapturePanel::CapturePanel(QWidget *parent)
 
     m_trigger->addItems({tr("manual"), tr("auto")});
 
+    m_replayMode->setCheckable(true);
+
     auto *layout = new QFormLayout(this);
     layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     layout->addRow(tr("Frequency"), m_frequency);
@@ -93,6 +96,7 @@ CapturePanel::CapturePanel(QWidget *parent)
     layout->addRow(tr("Capture range"), m_captureRange);
     layout->addRow(tr("Hang time"), m_hangTime);
     layout->addRow(tr("Trigger"), m_trigger);
+    layout->addRow(m_replayMode);
     layout->addRow(m_monitorButton);
     layout->addRow(m_recordButton);
     layout->addRow(m_stopButton);
@@ -109,6 +113,13 @@ CapturePanel::CapturePanel(QWidget *parent)
                 &CapturePanel::paramsChanged);
     connect(m_peakThreshold, &QDoubleSpinBox::valueChanged, this,
             &CapturePanel::peakThresholdChanged);
+    // Replay mode only makes sense with the auto trigger, so force it to auto
+    // and lock the selector while enabled.
+    connect(m_replayMode, &QPushButton::toggled, this, [this](bool on) {
+        if (on)
+            m_trigger->setCurrentText(QStringLiteral("auto"));
+        m_trigger->setEnabled(!on);
+    });
 
     // Restore the last used values, then persist every edit.
     QSettings settings;
@@ -169,6 +180,11 @@ double CapturePanel::captureRangeHz() const
 double CapturePanel::hangTimeMs() const
 {
     return m_hangTime->value();
+}
+
+bool CapturePanel::replayMode() const
+{
+    return m_replayMode->isChecked();
 }
 
 void CapturePanel::setRunning(bool running)
