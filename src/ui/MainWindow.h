@@ -19,6 +19,7 @@ class QStackedWidget;
 
 namespace duality {
 
+class AboutPage;
 class CapturePanel;
 class DebugWorkspace;
 class DevicePanel;
@@ -116,6 +117,7 @@ private:
     SpectrumWidget *m_spectrumView;
     WaterfallWidget *m_waterfallView;
     DebugWorkspace *m_debugWorkspace;
+    AboutPage *m_aboutPage;
 
     // Docks by wide-layout side, for the responsive re-arrangement.
     QList<QDockWidget *> m_leftDocks;

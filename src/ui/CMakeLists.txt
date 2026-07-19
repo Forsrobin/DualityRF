@@ -17,6 +17,8 @@ add_library(duality_ui STATIC
     SessionBrowser.cpp
     DebugWorkspace.h
     DebugWorkspace.cpp
+    AboutPage.h
+    AboutPage.cpp
     MainWindow.h
     MainWindow.cpp
 )

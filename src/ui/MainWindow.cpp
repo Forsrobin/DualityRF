@@ -2,6 +2,7 @@
 
 #include "dsp/SpectrumAccumulator.h"
 #include "storage/IqFileReader.h"
+#include "ui/AboutPage.h"
 #include "ui/CapturePanel.h"
 #include "ui/DebugWorkspace.h"
 #include "ui/DevicePanel.h"
@@ -49,10 +50,12 @@ MainWindow::MainWindow()
     liveSplit->addWidget(m_waterfallView);
 
     m_debugWorkspace = new DebugWorkspace(&m_store, this);
+    m_aboutPage = new AboutPage(this);
 
     m_stack = new QStackedWidget(this);
     m_stack->addWidget(liveSplit);
     m_stack->addWidget(m_debugWorkspace);
+    m_stack->addWidget(m_aboutPage);
     setCentralWidget(m_stack);
 
     createDocks();
@@ -308,20 +311,21 @@ void MainWindow::createToolbar()
 
     QAction *liveAction = bar->addAction(tr("CAPTURE"));
     QAction *debugAction = bar->addAction(tr("DEBUG"));
-    liveAction->setCheckable(true);
-    debugAction->setCheckable(true);
+    QAction *aboutAction = bar->addAction(tr("ABOUT"));
+    const QList<QAction *> pages = {liveAction, debugAction, aboutAction};
+    for (QAction *action : pages)
+        action->setCheckable(true);
     liveAction->setChecked(true);
-    connect(liveAction, &QAction::triggered, this, [=, this] {
-        m_stack->setCurrentIndex(0);
-        liveAction->setChecked(true);
-        debugAction->setChecked(false);
-    });
-    connect(debugAction, &QAction::triggered, this, [=, this] {
-        m_stack->setCurrentIndex(1);
-        m_debugWorkspace->refreshSessions();
-        liveAction->setChecked(false);
-        debugAction->setChecked(true);
-    });
+    const auto setPage = [=, this](int index) {
+        m_stack->setCurrentIndex(index);
+        if (index == 1)
+            m_debugWorkspace->refreshSessions();
+        for (int i = 0; i < pages.size(); ++i)
+            pages[i]->setChecked(i == index);
+    };
+    connect(liveAction, &QAction::triggered, this, [setPage] { setPage(0); });
+    connect(debugAction, &QAction::triggered, this, [setPage] { setPage(1); });
+    connect(aboutAction, &QAction::triggered, this, [setPage] { setPage(2); });
 }
 
 Session *MainWindow::ensureSession()
