@@ -16,11 +16,13 @@
 #include <QDebug>
 #include <QDockWidget>
 #include <QLabel>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QToolBar>
 
 #include <algorithm>
@@ -225,14 +227,17 @@ void MainWindow::createDocks()
         return dock;
     };
     QDockWidget *devicesDock =
-        addDock(tr("DEVICES"), m_devicePanel, Qt::LeftDockWidgetArea, true, 520);
-    addDock(tr("CAPTURE"), m_capturePanel, Qt::LeftDockWidgetArea, true, 520);
-    addDock(tr("CONCURRENT TX"), m_transmitPanel, Qt::LeftDockWidgetArea, true,
-            520);
-    addDock(tr("SESSIONS"), m_sessionBrowser, Qt::RightDockWidgetArea, false,
-            380);
-    addDock(tr("PLAYBACK"), m_playbackPanel, Qt::RightDockWidgetArea, false,
-            380);
+        addDock(tr("DEVICES"), m_devicePanel, Qt::LeftDockWidgetArea, true,
+                kLeftDockMinWidth);
+    m_leftDocks = {devicesDock,
+                   addDock(tr("CAPTURE"), m_capturePanel,
+                           Qt::LeftDockWidgetArea, true, kLeftDockMinWidth),
+                   addDock(tr("CONCURRENT TX"), m_transmitPanel,
+                           Qt::LeftDockWidgetArea, true, kLeftDockMinWidth)};
+    m_rightDocks = {addDock(tr("SESSIONS"), m_sessionBrowser,
+                            Qt::RightDockWidgetArea, false, kRightDockMinWidth),
+                    addDock(tr("PLAYBACK"), m_playbackPanel,
+                            Qt::RightDockWidgetArea, false, kRightDockMinWidth)};
 
     QSettings settings;
     restoreGeometry(
@@ -241,6 +246,55 @@ void MainWindow::createDocks()
         settings.value(QStringLiteral("windowState/v5")).toByteArray();
     if (state.isEmpty() || !restoreState(state))
         resizeDocks({devicesDock}, {640}, Qt::Horizontal);
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    applyResponsiveLayout();
+}
+
+void MainWindow::applyResponsiveLayout()
+{
+    const bool compact = width() <= kCompactWidth;
+    if (compact == m_compactLayout)
+        return;
+    m_compactLayout = compact;
+
+    const auto rearrange = [this](const QList<QDockWidget *> &docks,
+                                  Qt::DockWidgetArea area, int minWidth,
+                                  bool tabify) {
+        for (QDockWidget *dock : docks) {
+            dock->setMinimumWidth(minWidth);
+            addDockWidget(area, dock);
+        }
+        // In the compact stack a whole side shares one row, so tab the panels
+        // instead of squeezing them side by side.
+        if (tabify) {
+            for (int i = 1; i < docks.size(); ++i)
+                tabifyDockWidget(docks.first(), docks[i]);
+            docks.first()->raise();
+        }
+    };
+
+    if (compact) {
+        // Stack the sections vertically: sidebar above the main view, the
+        // right-bar panels below it.
+        rearrange(m_leftDocks, Qt::TopDockWidgetArea, 0, true);
+        rearrange(m_rightDocks, Qt::BottomDockWidgetArea, 0, true);
+        // The dock tab bars are created lazily by tabifyDockWidget as direct
+        // children of the main window. Stretch the tabs across the full bar
+        // width so each takes an equal share.
+        const auto tabBars =
+            findChildren<QTabBar *>(QString(), Qt::FindDirectChildrenOnly);
+        for (QTabBar *bar : tabBars)
+            bar->setExpanding(true);
+    } else {
+        rearrange(m_leftDocks, Qt::LeftDockWidgetArea, kLeftDockMinWidth,
+                  false);
+        rearrange(m_rightDocks, Qt::RightDockWidgetArea, kRightDockMinWidth,
+                  false);
+    }
 }
 
 void MainWindow::createToolbar()
@@ -610,7 +664,10 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     QSettings settings;
     settings.setValue(QStringLiteral("geometry/v5"), saveGeometry());
-    settings.setValue(QStringLiteral("windowState/v5"), saveState());
+    // The compact (stacked) arrangement is derived from the window width, so
+    // only the wide layout is worth persisting.
+    if (!m_compactLayout)
+        settings.setValue(QStringLiteral("windowState/v5"), saveState());
     m_capture.stop();
     m_transmit.stop();
     m_playback.stop();

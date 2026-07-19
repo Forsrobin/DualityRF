@@ -8,11 +8,13 @@
 #include "sdr/DeviceManager.h"
 #include "storage/SessionStore.h"
 
+#include <QList>
 #include <QMainWindow>
 
 #include <chrono>
 #include <memory>
 
+class QDockWidget;
 class QStackedWidget;
 
 namespace duality {
@@ -37,6 +39,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private slots:
     void startCapture(bool record);
@@ -49,6 +52,9 @@ private slots:
 private:
     void createDocks();
     void createToolbar();
+    // Below kCompactWidth the side docks move above/below the central view so
+    // the sections stack vertically instead of side by side.
+    void applyResponsiveLayout();
     Session *ensureSession();
     void cacheRecordingSpectrum(const RecordingMetadata &meta);
     void updateCaptureRangeOverlay();
@@ -110,6 +116,14 @@ private:
     SpectrumWidget *m_spectrumView;
     WaterfallWidget *m_waterfallView;
     DebugWorkspace *m_debugWorkspace;
+
+    // Docks by wide-layout side, for the responsive re-arrangement.
+    QList<QDockWidget *> m_leftDocks;
+    QList<QDockWidget *> m_rightDocks;
+    bool m_compactLayout = false;
+    static constexpr int kCompactWidth = 960;
+    static constexpr int kLeftDockMinWidth = 520;
+    static constexpr int kRightDockMinWidth = 380;
 
     // Panels
     DevicePanel *m_devicePanel;

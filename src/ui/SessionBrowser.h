@@ -32,6 +32,10 @@ private slots:
     void onContextMenu(const QPoint &pos);
 
 private:
+    // Confirm-and-delete, shared by the context menu and the per-row buttons.
+    void promptDeleteRecording(int sessionIdx, int recIdx);
+    void promptDeleteSession(int sessionIdx);
+
     SessionStore *m_store;
     QTreeWidget *m_tree;
     QPushButton *m_newSessionButton;
