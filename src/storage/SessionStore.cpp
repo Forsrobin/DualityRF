@@ -13,8 +13,9 @@ SessionStore::SessionStore(QString dataRoot)
 
 QString SessionStore::defaultDataRoot()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::HomeLocation) +
-           QStringLiteral("/DualityRF");
+    return QStandardPaths::writableLocation(
+               QStandardPaths::GenericDataLocation) +
+           QStringLiteral("/duality-rf");
 }
 
 QStringList SessionStore::listSessionDirs() const

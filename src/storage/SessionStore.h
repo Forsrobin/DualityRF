@@ -9,7 +9,8 @@
 
 namespace duality {
 
-// Owns the data root (default ~/DualityRF) and its Sessions/ directory.
+// Owns the data root (default ~/.local/share/duality-rf) and its Sessions/
+// directory.
 class SessionStore {
 public:
     explicit SessionStore(QString dataRoot = defaultDataRoot());
