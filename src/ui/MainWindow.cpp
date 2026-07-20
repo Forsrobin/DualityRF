@@ -9,9 +9,11 @@
 #include "ui/PlaybackPanel.h"
 #include "ui/SessionBrowser.h"
 #include "ui/SpectrumWidget.h"
+#include "ui/Theme.h"
 #include "ui/TransmitPanel.h"
 #include "ui/WaterfallWidget.h"
 
+#include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QDebug>
@@ -264,6 +266,16 @@ void MainWindow::applyResponsiveLayout()
         return;
     m_compactLayout = compact;
 
+    // Swap in the scaled-down (or full-size) stylesheet so fonts, padding and
+    // hit targets match the available space.
+    Theme::apply(*qApp, compact);
+
+    // The stacked live view has to share the short screen with the panels, so
+    // let the plots collapse much smaller in the vertical layout.
+    const int plotMin = compact ? 60 : 120;
+    m_spectrumView->setMinimumHeight(plotMin);
+    m_waterfallView->setMinimumHeight(plotMin);
+
     const auto rearrange = [this](const QList<QDockWidget *> &docks,
                                   Qt::DockWidgetArea area, int minWidth,
                                   bool tabify) {
@@ -320,6 +332,13 @@ void MainWindow::createToolbar()
         m_stack->setCurrentIndex(index);
         if (index == 1)
             m_debugWorkspace->refreshSessions();
+        // The About page stands alone: hide the capture/session/playback docks
+        // so only the About content is shown.
+        const bool showDocks = index != 2;
+        for (QDockWidget *dock : m_leftDocks)
+            dock->setVisible(showDocks);
+        for (QDockWidget *dock : m_rightDocks)
+            dock->setVisible(showDocks);
         for (int i = 0; i < pages.size(); ++i)
             pages[i]->setChecked(i == index);
     };

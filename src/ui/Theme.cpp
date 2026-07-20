@@ -6,9 +6,13 @@
 
 namespace duality::Theme {
 
-void apply(QApplication &app)
+namespace {
+
+// The full-size touchscreen style: generous padding and large hit targets,
+// tuned for the desktop / large-panel layout.
+QString wideStyleSheet()
 {
-    app.setStyleSheet(QStringLiteral(R"(
+    return QStringLiteral(R"(
 * {
     background-color: #000000;
     color: #ffffff;
@@ -196,7 +200,211 @@ QTabBar::tab:selected {
     background: #ffffff;
     color: #000000;
 }
-)"));
+)");
+}
+
+// The same monochrome look scaled down for the 480x320 panel: ~11px type,
+// tight padding, and hit targets that are still tappable (~26px tall) but small
+// enough that a full settings panel fits without dominating the screen.
+QString compactStyleSheet()
+{
+    return QStringLiteral(R"(
+* {
+    background-color: #000000;
+    color: #ffffff;
+    border-radius: 0px;
+    font-size: 11px;
+    selection-background-color: #ffffff;
+    selection-color: #000000;
+}
+QPushButton {
+    border: 1px solid #ffffff;
+    padding: 4px 8px;
+    min-height: 16px;
+}
+QPushButton:pressed, QPushButton:checked {
+    background-color: #ffffff;
+    color: #000000;
+}
+QPushButton:disabled {
+    border-color: #555555;
+    color: #555555;
+}
+QComboBox, QLineEdit {
+    border: 1px solid #ffffff;
+    padding: 3px 4px;
+    min-height: 16px;
+}
+QComboBox::drop-down {
+    border-left: 1px solid #ffffff;
+    width: 22px;
+}
+QComboBox::down-arrow {
+    image: url(:/assets/arrow-down-white.png);
+    width: 11px;
+    height: 8px;
+}
+QComboBox::down-arrow:disabled {
+    image: url(:/assets/arrow-down-gray.png);
+}
+QComboBox QAbstractItemView {
+    border: 1px solid #ffffff;
+}
+QSpinBox, QDoubleSpinBox {
+    border: 1px solid #ffffff;
+    padding: 3px 26px;
+    min-height: 16px;
+}
+QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled,
+QLineEdit:disabled {
+    border-color: #555555;
+    color: #555555;
+}
+/* Touch-friendly stepper: decrement on the left, increment on the right. */
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: center left;
+    width: 24px;
+    height: 26px;
+    border: 1px solid #ffffff;
+    background: #000000;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: center right;
+    width: 24px;
+    height: 26px;
+    border: 1px solid #ffffff;
+    background: #000000;
+}
+QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {
+    background: #ffffff;
+}
+QSpinBox::down-button:disabled, QDoubleSpinBox::down-button:disabled,
+QSpinBox::up-button:disabled, QDoubleSpinBox::up-button:disabled {
+    border-color: #555555;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url(:/assets/arrow-up-white.png);
+    width: 13px;
+    height: 9px;
+}
+QSpinBox::up-arrow:pressed, QDoubleSpinBox::up-arrow:pressed {
+    image: url(:/assets/arrow-up-black.png);
+}
+QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled {
+    image: url(:/assets/arrow-up-gray.png);
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url(:/assets/arrow-down-white.png);
+    width: 13px;
+    height: 9px;
+}
+QSpinBox::down-arrow:pressed, QDoubleSpinBox::down-arrow:pressed {
+    image: url(:/assets/arrow-down-black.png);
+}
+QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {
+    image: url(:/assets/arrow-down-gray.png);
+}
+QCheckBox::indicator, QGroupBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #ffffff;
+}
+QCheckBox::indicator:checked, QGroupBox::indicator:checked {
+    background-color: #ffffff;
+}
+QGroupBox {
+    border: 1px solid #ffffff;
+    margin-top: 8px;
+    padding-top: 4px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 6px;
+}
+QDockWidget {
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+QDockWidget::title {
+    background: #ffffff;
+    color: #000000;
+    border: 1px solid #ffffff;
+    padding: 3px;
+    text-align: left;
+}
+QTreeWidget, QTableWidget, QListWidget {
+    border: 1px solid #ffffff;
+}
+QHeaderView::section {
+    border: 1px solid #ffffff;
+    padding: 3px;
+}
+QToolBar {
+    border-bottom: 1px solid #ffffff;
+    spacing: 4px;
+    padding: 3px;
+}
+QToolButton {
+    border: 1px solid #ffffff;
+    background: #000000;
+    padding: 5px 10px;
+    min-height: 16px;
+}
+QToolButton:pressed {
+    background: #ffffff;
+    color: #000000;
+}
+/* Active view stands out as an inverted (white) button. */
+QToolButton:checked {
+    background: #ffffff;
+    color: #000000;
+}
+QStatusBar {
+    border-top: 1px solid #ffffff;
+}
+QScrollBar {
+    border: 1px solid #ffffff;
+    background: #000000;
+    width: 12px;
+    height: 12px;
+}
+QScrollBar::handle {
+    background: #ffffff;
+    min-height: 18px;
+    min-width: 18px;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0px;
+    height: 0px;
+}
+QSlider::groove:horizontal {
+    border: 1px solid #ffffff;
+    height: 4px;
+}
+QSlider::handle:horizontal {
+    background: #ffffff;
+    width: 18px;
+    margin: -9px 0;
+}
+QTabBar::tab {
+    border: 1px solid #ffffff;
+    padding: 5px 8px;
+}
+QTabBar::tab:selected {
+    background: #ffffff;
+    color: #000000;
+}
+)");
+}
+
+} // namespace
+
+void apply(QApplication &app, bool compact)
+{
+    app.setStyleSheet(compact ? compactStyleSheet() : wideStyleSheet());
 }
 
 QRgb spectrumColor(float t)

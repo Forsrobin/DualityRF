@@ -11,7 +11,10 @@ namespace duality {
 // produced by spectrumColor() inside the plot widgets.
 namespace Theme {
 
-void apply(QApplication &app);
+// Installs the application stylesheet. In compact mode (small screens such as
+// the 480x320 panel) every metric — fonts, padding, hit targets — is scaled
+// down so the full UI fits. Safe to call again at runtime to switch modes.
+void apply(QApplication &app, bool compact = false);
 
 // Intensity colormap for spectrum visualizations; t in [0,1].
 QRgb spectrumColor(float t);
