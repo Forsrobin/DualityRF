@@ -13,6 +13,10 @@ add_library(duality_ui STATIC
     HazardButton.cpp
     ToastManager.h
     ToastManager.cpp
+    HomePage.h
+    HomePage.cpp
+    ProgramScreen.h
+    ProgramScreen.cpp
     DevicePanel.h
     DevicePanel.cpp
     CapturePanel.h

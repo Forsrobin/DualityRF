@@ -6,9 +6,11 @@
 #include "ui/CapturePanel.h"
 #include "ui/DebugWorkspace.h"
 #include "ui/DevicePanel.h"
-#include "ui/PlaybackPanel.h"
-#include "ui/SessionBrowser.h"
 #include "ui/FlowLayout.h"
+#include "ui/HomePage.h"
+#include "ui/PlaybackPanel.h"
+#include "ui/ProgramScreen.h"
+#include "ui/SessionBrowser.h"
 #include "ui/SpectrumWidget.h"
 #include "ui/Theme.h"
 #include "ui/ToastManager.h"
@@ -21,16 +23,12 @@
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QDebug>
-#include <QIcon>
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
-#include <QSize>
-#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTimer>
-#include <QToolBar>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -58,19 +56,36 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
   // Scaled-down stylesheet sized for the 320x480 popout.
   Theme::apply(*qApp, true);
 
-  // Central stack: Fob (control tabs + live viz), Debug workspace, About.
+  // Central stack: the home grid (index 0) launches each program screen.
   m_debugWorkspace = new DebugWorkspace(&m_store, this);
   m_aboutPage = new AboutPage(this);
 
   m_stack = new QStackedWidget(this);
-  m_stack->addWidget(buildFobPage());
-  m_stack->addWidget(m_debugWorkspace);
-  m_stack->addWidget(m_aboutPage);
   setCentralWidget(m_stack);
 
-  createToolbar();
+  m_home = new HomePage(this);
+  m_stack->addWidget(m_home);
+  connect(m_home, &HomePage::programActivated, this,
+          [this](int index) { m_stack->setCurrentIndex(index + 1); });
+
+  // Register programs — add a line here to add a new screen. buildFobPage()
+  // must run before the panel signals are wired below (it creates the panels).
+  addProgram(tr("FOB"), QStringLiteral(":/assets/key.jpg"), buildFobPage());
+  m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/logo.png"),
+                             m_debugWorkspace);
+  addProgram(tr("ABOUT"), QStringLiteral(":/assets/logo.png"), m_aboutPage);
+
+  // The home grid owns the footer, so hide the status bar there; refresh the
+  // debug sessions whenever its screen is opened.
+  connect(m_stack, &QStackedWidget::currentChanged, this, [this] {
+    statusBar()->setVisible(m_stack->currentIndex() != 0);
+    if (m_stack->currentWidget() == m_debugScreen)
+      m_debugWorkspace->refreshSessions();
+  });
+
   m_toasts = new ToastManager(this, this);
   statusBar()->showMessage(tr("Ready"));
+  statusBar()->hide(); // starts on the home grid
 
   // Live spectrum → views, plus peak detection while monitoring.
   connect(&m_spectrumProcessor, &SpectrumProcessor::spectrumReady, this,
@@ -218,8 +233,8 @@ QWidget *MainWindow::buildFobPage() {
   auto *tabBar = new QWidget;
   tabBar->setObjectName(QStringLiteral("panelTabBar"));
   // Full-width border under the wrapping tab row.
-  tabBar->setStyleSheet(QStringLiteral(
-      "#panelTabBar { border-bottom: 1px solid #ffffff; }"));
+  tabBar->setStyleSheet(
+      QStringLiteral("#panelTabBar { border-bottom: 1px solid #ffffff; }"));
   auto *tabFlow = new FlowLayout(tabBar, 4, 4, 4);
   auto *tabGroup = new QButtonGroup(this);
   tabGroup->setExclusive(true);
@@ -267,43 +282,14 @@ QWidget *MainWindow::buildFobPage() {
   return page;
 }
 
-void MainWindow::createToolbar() {
-  auto *bar = addToolBar(tr("Views"));
-  bar->setObjectName(QStringLiteral("views"));
-  bar->setMovable(false);
-  // Show both the icon and its label (default is icon-only once an action
-  // carries an icon), and keep the icon compact so the Fob button stays the
-  // same size as the text-only tabs.
-  bar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-  bar->setIconSize(QSize(16, 16));
-
-  auto *title = new QLabel(QStringLiteral("  DUALITY RF  "), this);
-  bar->addWidget(title);
-
-  QAction *liveAction =
-      bar->addAction(QIcon(QStringLiteral(":/assets/key.jpg")), tr("  Fob"));
-
-  // Push the remaining views to the right edge of the toolbar.
-  auto *spacer = new QWidget(this);
-  spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-  bar->addWidget(spacer);
-
-  QAction *debugAction = bar->addAction(tr("DEBUG"));
-  QAction *aboutAction = bar->addAction(tr("ABOUT"));
-  const QList<QAction *> pages = {liveAction, debugAction, aboutAction};
-  for (QAction *action : pages)
-    action->setCheckable(true);
-  liveAction->setChecked(true);
-  const auto setPage = [=, this](int index) {
-    m_stack->setCurrentIndex(index);
-    if (index == 1)
-      m_debugWorkspace->refreshSessions();
-    for (int i = 0; i < pages.size(); ++i)
-      pages[i]->setChecked(i == index);
-  };
-  connect(liveAction, &QAction::triggered, this, [setPage] { setPage(0); });
-  connect(debugAction, &QAction::triggered, this, [setPage] { setPage(1); });
-  connect(aboutAction, &QAction::triggered, this, [setPage] { setPage(2); });
+QWidget *MainWindow::addProgram(const QString &name, const QString &iconPath,
+                                QWidget *content) {
+  auto *screen = new ProgramScreen(name, content, this);
+  connect(screen, &ProgramScreen::backRequested, this,
+          [this] { m_stack->setCurrentIndex(0); });
+  m_stack->addWidget(screen);
+  m_home->addProgram(name, iconPath);
+  return screen;
 }
 
 Session *MainWindow::ensureSession() {

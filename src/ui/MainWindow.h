@@ -21,6 +21,7 @@ class AboutPage;
 class CapturePanel;
 class DebugWorkspace;
 class DevicePanel;
+class HomePage;
 class PlaybackPanel;
 class SessionBrowser;
 class SpectrumWidget;
@@ -53,7 +54,10 @@ private:
     // Builds the Fob page: one tab row of control panels (top 3/4) over the
     // switchable waterfall/FFT visualization (bottom 1/4).
     QWidget *buildFobPage();
-    void createToolbar();
+    // Registers a program: adds a tile to the home grid and pushes `content`
+    // (wrapped in a back-bar) onto the stack. Returns the wrapped screen.
+    QWidget *addProgram(const QString &name, const QString &iconPath,
+                        QWidget *content);
     Session *ensureSession();
     void cacheRecordingSpectrum(const RecordingMetadata &meta);
     void updateCaptureRangeOverlay();
@@ -112,11 +116,13 @@ private:
 
     // Views
     QStackedWidget *m_stack;
+    HomePage *m_home;
     QStackedWidget *m_panelStack;
     SpectrumWidget *m_spectrumView;
     WaterfallWidget *m_waterfallView;
     VizPanel *m_viz;
     DebugWorkspace *m_debugWorkspace;
+    QWidget *m_debugScreen = nullptr; // back-bar wrapper around the workspace
     AboutPage *m_aboutPage;
     ToastManager *m_toasts;
 
