@@ -89,7 +89,8 @@ fix!: remove deprecated conf → 2.0.0
 ## The release pipeline
 
 Defined in [`.github/workflows/release.yml`](../.github/workflows/release.yml),
-triggered on push to `release/**`. It runs four jobs:
+triggered on push to the `release` branch or any `release/**` branch. It runs
+four jobs:
 
 1. **`version`** — full-history checkout, runs `next-version.sh`, and exposes
    `bump`, `version`, `tag`, `previous` as job outputs. It is skipped for the
