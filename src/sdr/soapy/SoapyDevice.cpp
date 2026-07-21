@@ -5,6 +5,10 @@
 
 #include <QDebug>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 namespace duality {
 
 namespace {
@@ -52,11 +56,52 @@ public:
             m_dev->setFrequency(m_direction, 0, p.frequencyHz);
             if (p.bandwidthHz > 0.0)
                 m_dev->setBandwidth(m_direction, 0, p.bandwidthHz);
-            m_dev->setGain(m_direction, 0, p.gainDb);
+            applyGain(p.gainDb);
             return true;
         } catch (const std::exception &e) {
             qWarning() << "SoapyDevice: configure failed:" << e.what();
             return false;
+        }
+    }
+
+    // Set the requested gain so it matches what the radio applies. On TX,
+    // SoapySDR's aggregate setGain() splits the value across every stage,
+    // e.g. a HackRF puts 14 dB into the fixed RF amp and the rest into the
+    // variable VGA — so a requested 40 dB shows up as VGA 26 dB. Instead put
+    // the whole requested gain into the variable stage (the widest-range gain
+    // element) and leave any fixed amp off, so 40 in means VGA 40. RX keeps
+    // the aggregate behaviour (max sensitivity across its stages).
+    void applyGain(double gainDb)
+    {
+        if (m_direction != SOAPY_SDR_TX) {
+            m_dev->setGain(m_direction, 0, gainDb);
+            return;
+        }
+        const std::vector<std::string> names = m_dev->listGains(m_direction, 0);
+        if (names.size() <= 1) {
+            m_dev->setGain(m_direction, 0, gainDb);
+            return;
+        }
+        // The widest-range element is the variable gain; the rest are amps.
+        std::string variable;
+        double widest = -1.0;
+        for (const std::string &name : names) {
+            const SoapySDR::Range r =
+                m_dev->getGainRange(m_direction, 0, name);
+            const double span = r.maximum() - r.minimum();
+            if (span > widest) {
+                widest = span;
+                variable = name;
+            }
+        }
+        for (const std::string &name : names) {
+            const SoapySDR::Range r =
+                m_dev->getGainRange(m_direction, 0, name);
+            const double value =
+                name == variable
+                    ? std::clamp(gainDb, r.minimum(), r.maximum())
+                    : r.minimum(); // amp off
+            m_dev->setGain(m_direction, 0, name, value);
         }
     }
 

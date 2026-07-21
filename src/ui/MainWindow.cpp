@@ -17,7 +17,7 @@
 #include "ui/programs/DebugProgram.h"
 #include "ui/programs/FobProgram.h"
 #include "ui/programs/InfoProgram.h"
-#include "ui/programs/TxProgram.h"
+#include "ui/programs/JamProgram.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -44,7 +44,7 @@ constexpr int kSplashMinimumMs = 1500;
 } // namespace
 
 MainWindow::MainWindow()
-    : m_capture(&m_spectrumProcessor), m_txMonitor(&m_txProcessor) {
+    : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor) {
   setWindowTitle(QStringLiteral("DUALITY RF"));
 
   // Fixed 320x480 portrait popout: not resizable. Equal min/max size is also
@@ -80,9 +80,9 @@ MainWindow::MainWindow()
   m_waterfallView = m_fobProgram->waterfallView();
   addProgram(tr("FOB"), QStringLiteral(":/assets/fob.png"), m_fobProgram);
 
-  m_txProgram = new TxProgram(this);
-  m_txScreen = addProgram(tr("TX"), QStringLiteral(":/assets/logo.png"),
-                          m_txProgram);
+  m_jamProgram = new JamProgram(this);
+  m_jamScreen = addProgram(tr("JAM"), QStringLiteral(":/assets/jam.png"),
+                           m_jamProgram);
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugProgram);
   addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
@@ -94,9 +94,9 @@ MainWindow::MainWindow()
         qobject_cast<ProgramScreen *>(m_stack->currentWidget()) != nullptr);
     if (m_stack->currentWidget() == m_debugScreen)
       m_debugProgram->refreshSessions();
-    // Leaving the TX screen stops its transmission so it can't run unseen.
-    if (m_txProgramActive && m_stack->currentWidget() != m_txScreen)
-      stopTxProgram();
+    // Leaving the Jam screen stops its transmission so it can't run unseen.
+    if (m_jamActive && m_stack->currentWidget() != m_jamScreen)
+      stopJam();
   });
 
   // Boot splash lives in the stack too; show it first, then reveal the home
@@ -233,14 +233,14 @@ MainWindow::MainWindow()
       m_transmit.updateWaveform(m_transmitPanel->waveformConfig());
   });
 
-  // Standalone TX program.
-  connect(m_txProgram, &TxProgram::startRequested, this,
-          &MainWindow::startTxProgram);
-  connect(m_txProgram, &TxProgram::stopRequested, this,
-          &MainWindow::stopTxProgram);
-  connect(&m_txProcessor, &SpectrumProcessor::spectrumReady, m_txProgram,
-          &TxProgram::pushSpectrum);
-  connect(&m_txMonitor, &CapturePipeline::errorOccurred, this,
+  // Standalone Jam program.
+  connect(m_jamProgram, &JamProgram::startRequested, this,
+          &MainWindow::startJam);
+  connect(m_jamProgram, &JamProgram::stopRequested, this,
+          &MainWindow::stopJam);
+  connect(&m_jamProcessor, &SpectrumProcessor::spectrumReady, m_jamProgram,
+          &JamProgram::pushSpectrum);
+  connect(&m_jamMonitor, &CapturePipeline::errorOccurred, this,
           [this](const QString &msg) { statusBar()->showMessage(msg); });
 
   m_deviceManager.rescan();
@@ -249,7 +249,7 @@ MainWindow::MainWindow()
 
 MainWindow::~MainWindow() {
   m_capture.stop();
-  m_txMonitor.stop();
+  m_jamMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
 }
@@ -311,7 +311,7 @@ void MainWindow::startCapture(bool record) {
     plan.minSegmentSamples = msToSamples(kAutoMinSegment);
   }
   if (record && !autoMode) {
-    plan.durationSec = m_capturePanel->durationSec();
+    // No duration input: record runs until the user hits STOP.
     plan.outputPath = ensureSession()->nextRecordingPath();
   }
 
@@ -511,24 +511,24 @@ void MainWindow::onTransmitToggled(bool enabled) {
   }
 }
 
-void MainWindow::startTxProgram() {
+void MainWindow::startJam() {
   const auto txInfo = m_devicePanel->selectedTx();
   if (!txInfo) {
     statusBar()->showMessage(tr("Select a transmitter first"));
-    m_txProgram->setRunning(false);
+    m_jamProgram->setRunning(false);
     return;
   }
   auto txDevice = m_deviceManager.open(*txInfo);
   if (!txDevice) {
     statusBar()->showMessage(tr("Cannot open %1").arg(txInfo->displayName()));
-    m_txProgram->setRunning(false);
+    m_jamProgram->setRunning(false);
     return;
   }
 
-  const StreamParams params = m_txProgram->streamParams();
+  const StreamParams params = m_jamProgram->streamParams();
   if (!m_transmit.start(std::move(txDevice), params,
-                        m_txProgram->waveformConfig())) {
-    m_txProgram->setRunning(false);
+                        m_jamProgram->waveformConfig())) {
+    m_jamProgram->setRunning(false);
     return;
   }
 
@@ -538,21 +538,21 @@ void MainWindow::startTxProgram() {
     if (auto rxDevice = m_deviceManager.open(*rxInfo)) {
       CapturePipeline::Plan plan;
       plan.params = params; // monitor only (no output path)
-      m_txMonitor.start(std::move(rxDevice), plan);
+      m_jamMonitor.start(std::move(rxDevice), plan);
     }
   }
 
-  m_txProgramActive = true;
-  m_txProgram->setRunning(true);
+  m_jamActive = true;
+  m_jamProgram->setRunning(true);
   statusBar()->showMessage(tr("Transmitting %1 MHz")
                                .arg(params.frequencyHz / 1e6, 0, 'f', 3));
 }
 
-void MainWindow::stopTxProgram() {
+void MainWindow::stopJam() {
   m_transmit.stop();
-  m_txMonitor.stop();
-  m_txProgramActive = false;
-  m_txProgram->setRunning(false);
+  m_jamMonitor.stop();
+  m_jamActive = false;
+  m_jamProgram->setRunning(false);
   statusBar()->showMessage(tr("TX stopped"));
 }
 
@@ -651,7 +651,7 @@ void MainWindow::startPlayback(const QString &absPath,
 void MainWindow::closeEvent(QCloseEvent *event) {
   // Fixed-size popout: no geometry/state to persist.
   m_capture.stop();
-  m_txMonitor.stop();
+  m_jamMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
   QMainWindow::closeEvent(event);

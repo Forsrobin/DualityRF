@@ -23,10 +23,10 @@ class WaterfallWidget;
 // overlay (like the capture visualization) with the waterfall beneath it; both
 // stay visible. Transmission is driven by MainWindow, which feeds the live
 // spectrum back through pushSpectrum().
-class TxProgram : public QWidget {
+class JamProgram : public QWidget {
     Q_OBJECT
 public:
-    explicit TxProgram(QWidget *parent = nullptr);
+    explicit JamProgram(QWidget *parent = nullptr);
 
     // Carrier, sample rate (span) and TX gain for the transmitter.
     StreamParams streamParams() const;

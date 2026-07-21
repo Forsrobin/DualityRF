@@ -29,7 +29,7 @@ class SplashPage;
 class SpectrumWidget;
 class ToastManager;
 class TransmitPanel;
-class TxProgram;
+class JamProgram;
 class WaterfallWidget;
 
 // Owns the application services (device manager, session store, pipelines)
@@ -66,10 +66,10 @@ private:
     // Toggles the concurrent transmission on/off while a capture is running.
     void onTransmitToggled(bool enabled);
 
-    // Standalone TX program: transmit the configured waveform and, when a
+    // Standalone Jam program: transmit the configured waveform and, when a
     // receiver is selected, monitor it live into the program's FFT/waterfall.
-    void startTxProgram();
-    void stopTxProgram();
+    void startJam();
+    void stopJam();
 
     // Auto-capture: continuously records each in-band transmission to its own
     // trimmed file.
@@ -88,7 +88,7 @@ private:
     SessionStore m_store;
     std::unique_ptr<Session> m_session;
     SpectrumProcessor m_spectrumProcessor;
-    SpectrumProcessor m_txProcessor; // live spectrum for the TX program monitor
+    SpectrumProcessor m_jamProcessor; // live spectrum for the Jam program monitor
     PeakDetector m_peakDetector;
     StreamParams m_activeCaptureParams; // channel of the running capture
     bool m_monitorLive = false;
@@ -116,7 +116,7 @@ private:
     RecordingMetadata m_replayFirstMeta;
     QString m_replayFirstPath;
     CapturePipeline m_capture;
-    CapturePipeline m_txMonitor; // RX monitor feeding the TX program's viz
+    CapturePipeline m_jamMonitor; // RX monitor feeding the Jam program's viz
     PlaybackPipeline m_playback;
     TransmitPipeline m_transmit;
 
@@ -130,9 +130,9 @@ private:
     DebugProgram *m_debugProgram;
     QWidget *m_debugScreen = nullptr; // back-bar wrapper around the workspace
     InfoProgram *m_infoProgram;
-    TxProgram *m_txProgram;
-    QWidget *m_txScreen = nullptr;    // back-bar wrapper around the TX program
-    bool m_txProgramActive = false;   // TX program is transmitting
+    JamProgram *m_jamProgram;
+    QWidget *m_jamScreen = nullptr;    // back-bar wrapper around the Jam program
+    bool m_jamActive = false;   // Jam program is transmitting
     ToastManager *m_toasts;
 
     static constexpr int kWindowWidth = 320;

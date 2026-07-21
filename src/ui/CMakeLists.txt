@@ -42,8 +42,8 @@ add_library(duality_ui STATIC
     # Program screens
     programs/FobProgram.h
     programs/FobProgram.cpp
-    programs/TxProgram.h
-    programs/TxProgram.cpp
+    programs/JamProgram.h
+    programs/JamProgram.cpp
     programs/DebugProgram.h
     programs/DebugProgram.cpp
     programs/InfoProgram.h

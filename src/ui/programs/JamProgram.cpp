@@ -1,4 +1,4 @@
-#include "ui/programs/TxProgram.h"
+#include "ui/programs/JamProgram.h"
 
 #include "ui/components/HazardButton.h"
 #include "ui/widgets/SpectrumWidget.h"
@@ -46,7 +46,7 @@ const WaveformType kTypes[] = {
 constexpr double kAmplitude = 0.5;
 } // namespace
 
-TxProgram::TxProgram(QWidget *parent)
+JamProgram::JamProgram(QWidget *parent)
     : QWidget(parent)
     , m_preset(new QComboBox(this))
     , m_frequency(new QDoubleSpinBox(this))
@@ -138,13 +138,13 @@ TxProgram::TxProgram(QWidget *parent)
 
     // Preset fills the fields; any edit redraws the affected-band overlay.
     connect(m_preset, &QComboBox::currentIndexChanged, this,
-            &TxProgram::applyPreset);
+            &JamProgram::applyPreset);
     connect(m_type, &QComboBox::currentIndexChanged, this,
-            &TxProgram::onTypeChanged);
-    connect(m_browseButton, &QPushButton::clicked, this, &TxProgram::browseFile);
+            &JamProgram::onTypeChanged);
+    connect(m_browseButton, &QPushButton::clicked, this, &JamProgram::browseFile);
     for (QDoubleSpinBox *box : {m_frequency, m_sampleRate, m_offset, m_bandwidth})
         connect(box, &QDoubleSpinBox::valueChanged, this,
-                &TxProgram::updateOverlay);
+                &JamProgram::updateOverlay);
 
     connect(m_startButton, &QPushButton::clicked, this, [this](bool checked) {
         if (checked)
@@ -157,7 +157,7 @@ TxProgram::TxProgram(QWidget *parent)
     updateOverlay();
 }
 
-void TxProgram::applyPreset(int index)
+void JamProgram::applyPreset(int index)
 {
     if (index <= 0 || index >= static_cast<int>(kPresets.size()))
         return; // "Custom": leave the fields as-is
@@ -167,14 +167,14 @@ void TxProgram::applyPreset(int index)
     updateOverlay();
 }
 
-void TxProgram::onTypeChanged()
+void JamProgram::onTypeChanged()
 {
     const bool isFile = kTypes[m_type->currentIndex()] == WaveformType::IqFile;
     m_filePath->setEnabled(isFile);
     m_browseButton->setEnabled(isFile);
 }
 
-void TxProgram::browseFile()
+void JamProgram::browseFile()
 {
     const QString path = QFileDialog::getOpenFileName(
         this, tr("Select IQ waveform"), QString(),
@@ -183,17 +183,17 @@ void TxProgram::browseFile()
         m_filePath->setText(path);
 }
 
-double TxProgram::affectedCenterHz() const
+double JamProgram::affectedCenterHz() const
 {
     return m_frequency->value() * 1e6 + m_offset->value() * 1e3;
 }
 
-double TxProgram::affectedWidthHz() const
+double JamProgram::affectedWidthHz() const
 {
     return m_bandwidth->value() * 1e3;
 }
 
-void TxProgram::updateOverlay()
+void JamProgram::updateOverlay()
 {
     // Axis follows the tuned span; the shaded band is always drawn so the
     // affected bandwidth stays visible whether or not a transmission is live.
@@ -201,7 +201,7 @@ void TxProgram::updateOverlay()
     m_spectrum->setCaptureRange(affectedCenterHz(), affectedWidthHz());
 }
 
-StreamParams TxProgram::streamParams() const
+StreamParams JamProgram::streamParams() const
 {
     StreamParams p;
     p.frequencyHz = m_frequency->value() * 1e6;
@@ -210,7 +210,7 @@ StreamParams TxProgram::streamParams() const
     return p;
 }
 
-WaveformConfig TxProgram::waveformConfig() const
+WaveformConfig JamProgram::waveformConfig() const
 {
     WaveformConfig w;
     w.type = kTypes[m_type->currentIndex()];
@@ -221,7 +221,7 @@ WaveformConfig TxProgram::waveformConfig() const
     return w;
 }
 
-void TxProgram::setRunning(bool running)
+void JamProgram::setRunning(bool running)
 {
     QSignalBlocker block(m_startButton);
     m_startButton->setChecked(running);
@@ -231,7 +231,7 @@ void TxProgram::setRunning(bool running)
         m_waterfall->clear();
 }
 
-void TxProgram::pushSpectrum(const QVector<float> &row)
+void JamProgram::pushSpectrum(const QVector<float> &row)
 {
     m_spectrum->setTrace(row);
     m_waterfall->addRow(row);
