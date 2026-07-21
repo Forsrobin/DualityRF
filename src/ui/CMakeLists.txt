@@ -17,6 +17,8 @@ add_library(duality_ui STATIC
     HomePage.cpp
     ProgramScreen.h
     ProgramScreen.cpp
+    SplashPage.h
+    SplashPage.cpp
     DevicePanel.h
     DevicePanel.cpp
     CapturePanel.h

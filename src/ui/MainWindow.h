@@ -24,6 +24,7 @@ class DevicePanel;
 class HomePage;
 class PlaybackPanel;
 class SessionBrowser;
+class SplashPage;
 class SpectrumWidget;
 class ToastManager;
 class TransmitPanel;
@@ -116,6 +117,7 @@ private:
 
     // Views
     QStackedWidget *m_stack;
+    SplashPage *m_splash;
     HomePage *m_home;
     QStackedWidget *m_panelStack;
     SpectrumWidget *m_spectrumView;

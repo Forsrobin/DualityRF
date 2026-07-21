@@ -12,6 +12,7 @@
 #include "ui/ProgramScreen.h"
 #include "ui/SessionBrowser.h"
 #include "ui/SpectrumWidget.h"
+#include "ui/SplashPage.h"
 #include "ui/Theme.h"
 #include "ui/ToastManager.h"
 #include "ui/TransmitPanel.h"
@@ -43,6 +44,8 @@ constexpr qint64 kCacheMaxSamples = 2 * 1024 * 1024;
 // Pause after stopping concurrent TX before the replay grabs the transmitter,
 // so the TX stream fully stops and releases the device first.
 constexpr int kReplayTxSettleMs = 750;
+// How long the in-app boot splash stays up before revealing the home grid.
+constexpr int kSplashMinimumMs = 1500;
 } // namespace
 
 MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
@@ -70,22 +73,31 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
 
   // Register programs — add a line here to add a new screen. buildFobPage()
   // must run before the panel signals are wired below (it creates the panels).
-  addProgram(tr("FOB"), QStringLiteral(":/assets/key.jpg"), buildFobPage());
-  m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/logo.png"),
+  addProgram(tr("FOB"), QStringLiteral(":/assets/fob.png"), buildFobPage());
+  m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugWorkspace);
-  addProgram(tr("ABOUT"), QStringLiteral(":/assets/logo.png"), m_aboutPage);
+  addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_aboutPage);
 
-  // The home grid owns the footer, so hide the status bar there; refresh the
-  // debug sessions whenever its screen is opened.
+  // Only program screens carry a status bar; the home grid has its own footer
+  // and the splash is chrome-free. Refresh debug sessions when it opens.
   connect(m_stack, &QStackedWidget::currentChanged, this, [this] {
-    statusBar()->setVisible(m_stack->currentIndex() != 0);
+    statusBar()->setVisible(
+        qobject_cast<ProgramScreen *>(m_stack->currentWidget()) != nullptr);
     if (m_stack->currentWidget() == m_debugScreen)
       m_debugWorkspace->refreshSessions();
   });
 
+  // Boot splash lives in the stack too; show it first, then reveal the home
+  // grid after a short minimum so it doesn't just flash.
+  m_splash = new SplashPage(this);
+  m_stack->addWidget(m_splash);
+  m_stack->setCurrentWidget(m_splash);
+  QTimer::singleShot(kSplashMinimumMs, this,
+                     [this] { m_stack->setCurrentWidget(m_home); });
+
   m_toasts = new ToastManager(this, this);
   statusBar()->showMessage(tr("Ready"));
-  statusBar()->hide(); // starts on the home grid
+  statusBar()->hide(); // splash/home carry no status bar
 
   // Live spectrum → views, plus peak detection while monitoring.
   connect(&m_spectrumProcessor, &SpectrumProcessor::spectrumReady, this,
