@@ -134,7 +134,9 @@ jobs:
             --target "${{ github.sha }}" \
             artifacts/*.tar.gz artifacts/*.sha256
 
-  # 4. Bump the repository version and push it back to the release branch.
+  # 4. Bump the version files (CMakeLists.txt + package.json) and push them to
+  #    the release branch, then back-merge the same bump into main so both
+  #    branches always reflect the released version.
   sync-version:
     name: Sync repository version
     needs: [version, release]
@@ -143,22 +145,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          fetch-depth: 0 # need main as well as the release branch
           token: ${{ github.token }}
 
-      - name: Bump version file
-        run: bash scripts/bump-version.sh "${{ needs.version.outputs.version }}"
-
-      - name: Commit and push
+      - name: Bump and push to every tracked branch
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
         run: |
           set -euxo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "Version already in sync; nothing to commit."
-            exit 0
-          fi
-          git add CMakeLists.txt
+
+          # Bump one branch to $VERSION and push if anything changed. The commit
+          # is deterministic (same files, same value) so the release branch and
+          # main converge on identical content and never conflict on merge.
           # [skip ci] + the head-commit guard both prevent a re-trigger loop.
-          git commit -m "chore: release ${{ needs.version.outputs.tag }} [skip ci]"
-          git push origin "HEAD:${{ github.ref_name }}"
+          bump_branch() {
+            local branch="$1"
+            git checkout -B "$branch" "origin/$branch"
+            bash scripts/bump-version.sh "$VERSION"
+            if git diff --quiet; then
+              echo "Version already in sync on $branch; nothing to commit."
+              return 0
+            fi
+            git add CMakeLists.txt package.json
+            git commit -m "chore: release ${TAG} [skip ci]"
+            git push origin "HEAD:$branch"
+          }
+
+          bump_branch "$RELEASE_BRANCH"
+          # Back-merge into main (skip if the release ref already is main).
+          if [[ "$RELEASE_BRANCH" != "main" ]]; then
+            bump_branch "main"
+          fi

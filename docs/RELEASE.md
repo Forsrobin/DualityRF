@@ -104,9 +104,11 @@ four jobs:
 3. **`release`** — downloads the artifacts, generates categorized notes from the
    Conventional Commits (`release-notes.sh`), and creates the GitHub Release at
    tag `vX.Y.Z`, attaching both archives (and checksums) as **release assets**.
-4. **`sync-version`** — bumps `CMakeLists.txt` (`bump-version.sh`), commits
-   `chore: release vX.Y.Z [skip ci]`, and pushes it back to the release branch
-   so the repo always reflects the latest release.
+4. **`sync-version`** — bumps the version files `CMakeLists.txt` **and**
+   `package.json` (`bump-version.sh`), commits `chore: release vX.Y.Z [skip ci]`,
+   and pushes it to the release branch **and back to `main`** so both branches
+   always reflect the latest release. The bump is deterministic, so the two
+   branches converge on identical content and never conflict on merge.
 
 ### No re-trigger loop
 
@@ -157,6 +159,6 @@ shared by both matrix legs. It:
 | `.github/actions/setup-build/action.yml` | Composite: install + verify + cache toolchain |
 | `scripts/next-version.sh` | Compute next semver from commits |
 | `scripts/release-notes.sh` | Categorized release notes from commits |
-| `scripts/bump-version.sh` | Write the new version into `CMakeLists.txt` |
+| `scripts/bump-version.sh` | Write the new version into `CMakeLists.txt` + `package.json` |
 | `commitlint.config.js` | Allowed types (`feat`/`fix`/`chore`) + rules |
 | `.husky/commit-msg` | Local commit-message validation hook |
