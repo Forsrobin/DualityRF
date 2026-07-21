@@ -5,6 +5,7 @@
 #include "dsp/SpectrumAccumulator.h"
 #include "storage/IqFileReader.h"
 #include "ui/SpectrumWidget.h"
+#include "ui/VizPanel.h"
 #include "ui/WaterfallWidget.h"
 
 #include <QComboBox>
@@ -13,7 +14,6 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
-#include <QSplitter>
 #include <QTableWidget>
 #include <QVBoxLayout>
 
@@ -92,25 +92,28 @@ DebugWorkspace::DebugWorkspace(SessionStore *store, QWidget *parent)
     m_table->verticalHeader()->setVisible(false);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
-    auto *plots = new QSplitter(Qt::Vertical, this);
-    plots->addWidget(m_spectrum);
-    plots->addWidget(m_waterfall);
-
-    auto *split = new QSplitter(Qt::Horizontal, this);
-    split->addWidget(plots);
-    split->addWidget(m_table);
-    split->setStretchFactor(0, 2);
-    split->setStretchFactor(1, 1);
-
     auto *buttons = new QHBoxLayout;
     buttons->addWidget(m_replayA);
     buttons->addWidget(m_replayB);
     buttons->addStretch(1);
 
+    // Controls occupy the top 3/4: selectors, metadata table, replay buttons.
+    auto *controls = new QWidget(this);
+    auto *controlsLayout = new QVBoxLayout(controls);
+    controlsLayout->setContentsMargins(0, 0, 0, 0);
+    controlsLayout->addLayout(top);
+    controlsLayout->addWidget(m_table, 1);
+    controlsLayout->addLayout(buttons);
+
+    // Bottom 1/4: single view of the selected recording, switchable between
+    // the waterfall and the FFT trace.
+    m_spectrum->setMinimumHeight(60);
+    m_waterfall->setMinimumHeight(60);
+    auto *viz = new VizPanel(m_waterfall, m_spectrum, this);
+
     auto *layout = new QVBoxLayout(this);
-    layout->addLayout(top);
-    layout->addWidget(split, 1);
-    layout->addLayout(buttons);
+    layout->addWidget(controls, 1);
+    layout->addWidget(viz, 1);
 
     connect(m_sessionCombo, &QComboBox::currentIndexChanged, this,
             &DebugWorkspace::onSessionChanged);

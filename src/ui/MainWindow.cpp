@@ -8,28 +8,30 @@
 #include "ui/DevicePanel.h"
 #include "ui/PlaybackPanel.h"
 #include "ui/SessionBrowser.h"
+#include "ui/FlowLayout.h"
 #include "ui/SpectrumWidget.h"
 #include "ui/Theme.h"
+#include "ui/ToastManager.h"
 #include "ui/TransmitPanel.h"
+#include "ui/VizPanel.h"
 #include "ui/WaterfallWidget.h"
 
 #include <QApplication>
+#include <QButtonGroup>
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QDebug>
-#include <QDockWidget>
 #include <QIcon>
 #include <QLabel>
-#include <QResizeEvent>
+#include <QPushButton>
 #include <QScrollArea>
-#include <QSettings>
 #include <QSize>
 #include <QSizePolicy>
-#include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
-#include <QTabBar>
+#include <QTimer>
 #include <QToolBar>
+#include <QVBoxLayout>
 #include <QWidget>
 
 #include <algorithm>
@@ -40,30 +42,34 @@ namespace duality {
 namespace {
 constexpr int kCacheFftSize = 4096;
 constexpr qint64 kCacheMaxSamples = 2 * 1024 * 1024;
+// Pause after stopping concurrent TX before the replay grabs the transmitter,
+// so the TX stream fully stops and releases the device first.
+constexpr int kReplayTxSettleMs = 750;
 } // namespace
 
 MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
   setWindowTitle(QStringLiteral("DUALITY RF"));
-  resize(1600, 920);
 
-  // Central: live view (spectrum over waterfall) or debug workspace.
-  m_spectrumView = new SpectrumWidget(this);
-  m_waterfallView = new WaterfallWidget(this);
-  auto *liveSplit = new QSplitter(Qt::Vertical, this);
-  liveSplit->addWidget(m_spectrumView);
-  liveSplit->addWidget(m_waterfallView);
+  // Fixed 320x480 portrait popout: not resizable. Equal min/max size is also
+  // what makes Wayland tiling compositors (e.g. Hyprland) float it as a popup
+  // instead of tiling it to fill the output.
+  setFixedSize(kWindowWidth, kWindowHeight);
 
+  // Scaled-down stylesheet sized for the 320x480 popout.
+  Theme::apply(*qApp, true);
+
+  // Central stack: Fob (control tabs + live viz), Debug workspace, About.
   m_debugWorkspace = new DebugWorkspace(&m_store, this);
   m_aboutPage = new AboutPage(this);
 
   m_stack = new QStackedWidget(this);
-  m_stack->addWidget(liveSplit);
+  m_stack->addWidget(buildFobPage());
   m_stack->addWidget(m_debugWorkspace);
   m_stack->addWidget(m_aboutPage);
   setCentralWidget(m_stack);
 
-  createDocks();
   createToolbar();
+  m_toasts = new ToastManager(this, this);
   statusBar()->showMessage(tr("Ready"));
 
   // Live spectrum → views, plus peak detection while monitoring.
@@ -155,12 +161,14 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
   // Session browser → playback panel; debug replay → playback pipeline.
   connect(m_sessionBrowser, &SessionBrowser::recordingSelected, this,
           [this](const QString &sessionDir, const RecordingMetadata &meta) {
-            m_playbackPanel->setRecording(meta, sessionDir + '/' + meta.file);
+            // Point the playback dropdowns at the clicked session/recording.
+            m_playbackPanel->select(sessionDir, meta.file);
           });
   connect(m_sessionBrowser, &SessionBrowser::newSessionRequested, this, [this] {
     m_session = m_store.createSession();
     m_sessionBrowser->refresh();
     m_debugWorkspace->refreshSessions();
+    m_playbackPanel->refresh();
     statusBar()->showMessage(tr("Created %1").arg(m_session->name()));
   });
   connect(m_debugWorkspace, &DebugWorkspace::replayRequested, this,
@@ -176,6 +184,15 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
           [this](const QString &msg) { statusBar()->showMessage(msg); });
   connect(m_transmitPanel, &TransmitPanel::enabledChanged, this,
           &MainWindow::onTransmitToggled);
+  // Mirror the concurrent-TX enable state on the capture tab's indicator.
+  connect(m_transmitPanel, &TransmitPanel::enabledChanged, m_capturePanel,
+          &CapturePanel::setConcurrentTxEnabled);
+  m_capturePanel->setConcurrentTxEnabled(m_transmitPanel->transmitEnabled());
+  // Live waveform change: swap the running transmission's waveform in place.
+  connect(m_transmitPanel, &TransmitPanel::waveformChanged, this, [this] {
+    if (m_transmit.running())
+      m_transmit.updateWaveform(m_transmitPanel->waveformConfig());
+  });
 
   m_deviceManager.rescan();
   updateCaptureRangeOverlay();
@@ -187,119 +204,67 @@ MainWindow::~MainWindow() {
   m_playback.stop();
 }
 
-void MainWindow::createDocks() {
+QWidget *MainWindow::buildFobPage() {
   m_devicePanel = new DevicePanel(&m_deviceManager, this);
   m_capturePanel = new CapturePanel(this);
   m_transmitPanel = new TransmitPanel(this);
-  m_playbackPanel = new PlaybackPanel(this);
+  m_playbackPanel = new PlaybackPanel(&m_store, this);
   m_sessionBrowser = new SessionBrowser(&m_store, this);
 
-  const auto addDock = [this](const QString &title, QWidget *widget,
-                              Qt::DockWidgetArea area, bool scroll,
-                              int minWidth) {
-    auto *dock = new QDockWidget(title, this);
-    dock->setObjectName(title);
-    // The window style paints the default title text and ignores the
-    // stylesheet color, so use a plain label as the title bar to guarantee
-    // black-on-white headers.
-    auto *titleBar = new QLabel(title, dock);
-    titleBar->setStyleSheet(
-        QStringLiteral("background:#ffffff; color:#000000; padding:6px; "
-                       "border:1px solid #ffffff; font-weight:bold;"));
-    dock->setTitleBarWidget(titleBar);
-    if (scroll) {
-      // Wrap tall settings panels so the left column can scroll instead
-      // of squeezing the controls when several docks stack up.
-      auto *scrollArea = new QScrollArea(dock);
-      scrollArea->setWidget(widget);
-      scrollArea->setWidgetResizable(true);
-      scrollArea->setFrameShape(QFrame::NoFrame);
-      scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-      dock->setWidget(scrollArea);
-    } else {
-      dock->setWidget(widget);
-    }
-    // A minimum on the dock is honored by the layout (a minimum on a panel
-    // inside a scroll area is not), so this reliably fixes the column
-    // widths.
-    dock->setMinimumWidth(minWidth);
-    addDockWidget(area, dock);
-    return dock;
+  // One tab row for every control panel (top 3/4). The tabs are checkable
+  // buttons in a FlowLayout so they wrap to more rows instead of overflowing
+  // the 320px width; each drives the panel stack below.
+  m_panelStack = new QStackedWidget;
+  auto *tabBar = new QWidget;
+  tabBar->setObjectName(QStringLiteral("panelTabBar"));
+  // Full-width border under the wrapping tab row.
+  tabBar->setStyleSheet(QStringLiteral(
+      "#panelTabBar { border-bottom: 1px solid #ffffff; }"));
+  auto *tabFlow = new FlowLayout(tabBar, 4, 4, 4);
+  auto *tabGroup = new QButtonGroup(this);
+  tabGroup->setExclusive(true);
+
+  const auto addTab = [&](const QString &title, QWidget *panel) {
+    // Wrap each panel so a tall control set scrolls rather than being squeezed
+    // into the short window.
+    auto *scroll = new QScrollArea;
+    scroll->setWidget(panel);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    const int index = m_panelStack->addWidget(scroll);
+
+    auto *button = new QPushButton(title);
+    button->setCheckable(true);
+    button->setCursor(Qt::PointingHandCursor);
+    tabGroup->addButton(button, index);
+    tabFlow->addWidget(button);
   };
-  QDockWidget *devicesDock =
-      addDock(tr("DEVICES"), m_devicePanel, Qt::LeftDockWidgetArea, true,
-              kLeftDockMinWidth);
-  m_leftDocks = {devicesDock,
-                 addDock(tr("CAPTURE"), m_capturePanel, Qt::LeftDockWidgetArea,
-                         true, kLeftDockMinWidth),
-                 addDock(tr("CONCURRENT TX"), m_transmitPanel,
-                         Qt::LeftDockWidgetArea, true, kLeftDockMinWidth)};
-  m_rightDocks = {addDock(tr("SESSIONS"), m_sessionBrowser,
-                          Qt::RightDockWidgetArea, false, kRightDockMinWidth),
-                  addDock(tr("PLAYBACK"), m_playbackPanel,
-                          Qt::RightDockWidgetArea, false, kRightDockMinWidth)};
+  addTab(tr("DEVICES"), m_devicePanel);
+  addTab(tr("CAPTURE"), m_capturePanel);
+  addTab(tr("CONCURRENT TX"), m_transmitPanel);
+  addTab(tr("SESSIONS"), m_sessionBrowser);
+  addTab(tr("PLAYBACK"), m_playbackPanel);
+  connect(tabGroup, &QButtonGroup::idClicked, m_panelStack,
+          &QStackedWidget::setCurrentIndex);
+  tabGroup->button(0)->setChecked(true);
 
-  QSettings settings;
-  restoreGeometry(settings.value(QStringLiteral("geometry/v5")).toByteArray());
-  const QByteArray state =
-      settings.value(QStringLiteral("windowState/v5")).toByteArray();
-  if (state.isEmpty() || !restoreState(state))
-    resizeDocks({devicesDock}, {640}, Qt::Horizontal);
-}
+  // Bottom 1/4: a single visualization of the live capture, switchable
+  // between the waterfall and the FFT trace.
+  m_spectrumView = new SpectrumWidget(this);
+  m_waterfallView = new WaterfallWidget(this);
+  m_spectrumView->setMinimumHeight(60);
+  m_waterfallView->setMinimumHeight(60);
+  m_viz = new VizPanel(m_waterfallView, m_spectrumView);
 
-void MainWindow::resizeEvent(QResizeEvent *event) {
-  QMainWindow::resizeEvent(event);
-  applyResponsiveLayout();
-}
-
-void MainWindow::applyResponsiveLayout() {
-  const bool compact = width() <= kCompactWidth;
-  if (compact == m_compactLayout)
-    return;
-  m_compactLayout = compact;
-
-  // Swap in the scaled-down (or full-size) stylesheet so fonts, padding and
-  // hit targets match the available space.
-  Theme::apply(*qApp, compact);
-
-  // The stacked live view has to share the short screen with the panels, so
-  // let the plots collapse much smaller in the vertical layout.
-  const int plotMin = compact ? 60 : 120;
-  m_spectrumView->setMinimumHeight(plotMin);
-  m_waterfallView->setMinimumHeight(plotMin);
-
-  const auto rearrange = [this](const QList<QDockWidget *> &docks,
-                                Qt::DockWidgetArea area, int minWidth,
-                                bool tabify) {
-    for (QDockWidget *dock : docks) {
-      dock->setMinimumWidth(minWidth);
-      addDockWidget(area, dock);
-    }
-    // In the compact stack a whole side shares one row, so tab the panels
-    // instead of squeezing them side by side.
-    if (tabify) {
-      for (int i = 1; i < docks.size(); ++i)
-        tabifyDockWidget(docks.first(), docks[i]);
-      docks.first()->raise();
-    }
-  };
-
-  if (compact) {
-    // Stack the sections vertically: sidebar above the main view, the
-    // right-bar panels below it.
-    rearrange(m_leftDocks, Qt::TopDockWidgetArea, 0, true);
-    rearrange(m_rightDocks, Qt::BottomDockWidgetArea, 0, true);
-    // The dock tab bars are created lazily by tabifyDockWidget as direct
-    // children of the main window. Stretch the tabs across the full bar
-    // width so each takes an equal share.
-    const auto tabBars =
-        findChildren<QTabBar *>(QString(), Qt::FindDirectChildrenOnly);
-    for (QTabBar *bar : tabBars)
-      bar->setExpanding(true);
-  } else {
-    rearrange(m_leftDocks, Qt::LeftDockWidgetArea, kLeftDockMinWidth, false);
-    rearrange(m_rightDocks, Qt::RightDockWidgetArea, kRightDockMinWidth, false);
-  }
+  auto *page = new QWidget;
+  auto *layout = new QVBoxLayout(page);
+  layout->setContentsMargins(0, 0, 0, 0);
+  layout->setSpacing(0);
+  layout->addWidget(tabBar);
+  layout->addWidget(m_panelStack, 1);
+  layout->addWidget(m_viz, 1);
+  return page;
 }
 
 void MainWindow::createToolbar() {
@@ -333,13 +298,6 @@ void MainWindow::createToolbar() {
     m_stack->setCurrentIndex(index);
     if (index == 1)
       m_debugWorkspace->refreshSessions();
-    // The About page stands alone: hide the capture/session/playback docks
-    // so only the About content is shown.
-    const bool showDocks = index != 2;
-    for (QDockWidget *dock : m_leftDocks)
-      dock->setVisible(showDocks);
-    for (QDockWidget *dock : m_rightDocks)
-      dock->setVisible(showDocks);
     for (int i = 0; i < pages.size(); ++i)
       pages[i]->setChecked(i == index);
   };
@@ -372,6 +330,15 @@ void MainWindow::startCapture(bool record) {
   // pipeline runs as a monitor and segments are carved out on detection.
   const bool autoMode =
       record && m_capturePanel->trigger() == QLatin1String("auto");
+
+  // Every record run gets its own fresh session so recordings from separate
+  // runs are never mixed into the same session. Monitor does not record and
+  // keeps whatever session is current.
+  if (record) {
+    m_session = m_store.createSession();
+    m_sessionBrowser->refresh();
+    m_playbackPanel->refresh();
+  }
 
   CapturePipeline::Plan plan;
   plan.params = m_capturePanel->streamParams();
@@ -454,6 +421,7 @@ void MainWindow::driveAutoCapture(const QVector<float> &row) {
       m_autoPhase = AutoPhase::Recording;
       m_autoLastSignal = now;
       statusBar()->showMessage(tr("Capturing transmission…"));
+      m_toasts->show(tr("Auto capture triggered"));
     }
     break;
   case AutoPhase::Recording:
@@ -486,6 +454,7 @@ void MainWindow::onAutoSegmentSaved(const RecordingMetadata &meta) {
     session->addRecording(meta);
     cacheRecordingSpectrum(meta);
     m_sessionBrowser->refresh();
+    m_playbackPanel->refresh();
   }
   const QString when =
       meta.startedUtc.toLocalTime().toString(QStringLiteral("HH:mm:ss"));
@@ -496,6 +465,7 @@ void MainWindow::onAutoSegmentSaved(const RecordingMetadata &meta) {
                                .arg(when)
                                .arg(meta.durationSec, 0, 'f', 2)
                                .arg(meta.bandwidthHz / 1e3, 0, 'f', 0));
+  m_toasts->show(tr("Auto capture saved: %1").arg(meta.file));
 
   if (m_replayActive) {
     ++m_replaySegmentCount;
@@ -530,10 +500,18 @@ void MainWindow::enterReplayMonitor() {
     statusBar()->showMessage(tr("Replay mode: no signal to replay"));
     return;
   }
-  m_playbackPanel->setRecording(m_replayFirstMeta, m_replayFirstPath);
-  startPlayback(m_replayFirstPath, m_playbackPanel->streamParams(),
-                m_replayFirstMeta.format, m_playbackPanel->speed(),
-                m_playbackPanel->repeat());
+  // Let the concurrent TX fully stop and release the device before the replay
+  // takes over the transmitter.
+  statusBar()->showMessage(tr("Replay mode: stopping TX…"));
+  const RecordingMetadata meta = m_replayFirstMeta;
+  const QString path = m_replayFirstPath;
+  const QString sessionDir = m_session ? m_session->dir() : QString();
+  QTimer::singleShot(kReplayTxSettleMs, this, [this, meta, path, sessionDir] {
+    m_playbackPanel->select(sessionDir, meta.file);
+    startPlayback(path, m_playbackPanel->streamParams(), meta.format,
+                  m_playbackPanel->speed(), m_playbackPanel->repeat());
+    m_toasts->show(tr("Replaying first capture: %1").arg(meta.file));
+  });
 }
 
 void MainWindow::rearmAuto() {
@@ -616,6 +594,7 @@ void MainWindow::onCaptureFinished(const RecordingMetadata &meta,
     session->addRecording(meta);
     cacheRecordingSpectrum(meta);
     m_sessionBrowser->refresh();
+    m_playbackPanel->refresh();
     statusBar()->showMessage(
         tr("Saved %1 (%2 s)").arg(meta.file).arg(meta.durationSec, 0, 'f', 1));
   }
@@ -667,12 +646,7 @@ void MainWindow::startPlayback(const QString &absPath,
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-  QSettings settings;
-  settings.setValue(QStringLiteral("geometry/v5"), saveGeometry());
-  // The compact (stacked) arrangement is derived from the window width, so
-  // only the wide layout is worth persisting.
-  if (!m_compactLayout)
-    settings.setValue(QStringLiteral("windowState/v5"), saveState());
+  // Fixed-size popout: no geometry/state to persist.
   m_capture.stop();
   m_transmit.stop();
   m_playback.stop();

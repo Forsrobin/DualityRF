@@ -6,6 +6,7 @@
 
 class QComboBox;
 class QDoubleSpinBox;
+class QLabel;
 class QPushButton;
 
 namespace duality {
@@ -32,6 +33,9 @@ public:
     bool replayMode() const;
 
     void setRunning(bool running);
+    // Reflects the CONCURRENT TX enable state (owned by the transmit panel) in
+    // a small indicator here, so it is visible without switching tabs.
+    void setConcurrentTxEnabled(bool enabled);
 
 signals:
     void monitorRequested();
@@ -53,6 +57,7 @@ private:
     QDoubleSpinBox *m_hangTime;
     QComboBox *m_trigger;
     QPushButton *m_replayMode;
+    QLabel *m_txIndicator;
     QPushButton *m_monitorButton;
     QPushButton *m_recordButton;
     QPushButton *m_stopButton;

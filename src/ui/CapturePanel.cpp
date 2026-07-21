@@ -3,6 +3,8 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QPushButton>
 #include <QSettings>
 
@@ -31,6 +33,7 @@ CapturePanel::CapturePanel(QWidget *parent)
     , m_hangTime(new QDoubleSpinBox(this))
     , m_trigger(new QComboBox(this))
     , m_replayMode(new QPushButton(tr("REPLAY MODE"), this))
+    , m_txIndicator(new QLabel(tr("TX"), this))
     , m_monitorButton(new QPushButton(tr("MONITOR"), this))
     , m_recordButton(new QPushButton(tr("RECORD"), this))
     , m_stopButton(new QPushButton(tr("STOP"), this))
@@ -84,9 +87,32 @@ CapturePanel::CapturePanel(QWidget *parent)
     m_trigger->addItems({tr("manual"), tr("auto")});
 
     m_replayMode->setCheckable(true);
+    // Yellow flags that replay mode will transmit; the active state is a
+    // filled, bold, white-bordered button vs. the muted outline when off.
+    m_replayMode->setStyleSheet(QStringLiteral(
+        "QPushButton { background:#4d4000; color:#f5c400; "
+        "border:1px solid #f5c400; }"
+        "QPushButton:checked { background:#f5c400; color:#000000; "
+        "border:2px solid #ffffff; font-weight:bold; }"));
+
+    // Small "TX" lamp shown next to REPLAY MODE; lit when concurrent TX is on.
+    m_txIndicator->setAlignment(Qt::AlignCenter);
+    setConcurrentTxEnabled(false);
+
+    // Replay mode sits beside its concurrent-TX indicator.
+    auto *replayRow = new QHBoxLayout;
+    replayRow->addWidget(m_replayMode, 1);
+    replayRow->addWidget(m_txIndicator);
 
     auto *layout = new QFormLayout(this);
     layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    // Trigger and the arming buttons up top so they stay in view without
+    // scrolling the form.
+    layout->addRow(tr("Trigger"), m_trigger);
+    layout->addRow(m_monitorButton);
+    layout->addRow(m_recordButton);
+    layout->addRow(replayRow);
+    layout->addRow(m_stopButton);
     layout->addRow(tr("Frequency"), m_frequency);
     layout->addRow(tr("Sample rate"), m_sampleRate);
     layout->addRow(tr("Bandwidth"), m_bandwidth);
@@ -95,11 +121,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     layout->addRow(tr("Peak level"), m_peakThreshold);
     layout->addRow(tr("Capture range"), m_captureRange);
     layout->addRow(tr("Hang time"), m_hangTime);
-    layout->addRow(tr("Trigger"), m_trigger);
-    layout->addRow(m_replayMode);
-    layout->addRow(m_monitorButton);
-    layout->addRow(m_recordButton);
-    layout->addRow(m_stopButton);
 
     connect(m_monitorButton, &QPushButton::clicked, this,
             &CapturePanel::monitorRequested);
@@ -192,6 +213,17 @@ void CapturePanel::setRunning(bool running)
     m_monitorButton->setEnabled(!running);
     m_recordButton->setEnabled(!running);
     m_stopButton->setEnabled(running);
+}
+
+void CapturePanel::setConcurrentTxEnabled(bool enabled)
+{
+    m_txIndicator->setStyleSheet(
+        enabled ? QStringLiteral("background:#f5c400; color:#000000; "
+                                 "border:1px solid #ffffff; padding:2px 6px;")
+                : QStringLiteral("background:#000000; color:#555555; "
+                                 "border:1px solid #555555; padding:2px 6px;"));
+    m_txIndicator->setToolTip(enabled ? tr("Concurrent TX enabled")
+                                      : tr("Concurrent TX disabled"));
 }
 
 } // namespace duality

@@ -21,16 +21,19 @@ public:
     explicit TransmitPanel(QWidget *parent = nullptr);
 
     bool transmitEnabled() const;
-    // Programmatically tick/untick the CONCURRENT TX group (emits
-    // enabledChanged like a user click).
+    // Programmatically toggle the enable/disable button (emits enabledChanged
+    // like a user click).
     void setTransmitEnabled(bool enabled);
     WaveformConfig waveformConfig() const;
     double txGainDb() const;
 
 signals:
-    // Emitted when the user ticks/unticks the CONCURRENT TX group so a running
+    // Emitted when the user toggles the enable/disable button so a running
     // capture can start or stop the transmission live.
     void enabledChanged(bool enabled);
+    // Emitted when any waveform parameter changes so a running transmission can
+    // swap to the new waveform without stopping.
+    void waveformChanged();
 
 private slots:
     void onTypeChanged();
@@ -38,6 +41,7 @@ private slots:
 
 private:
     QGroupBox *m_group;
+    QPushButton *m_enableButton;
     QComboBox *m_type;
     QDoubleSpinBox *m_amplitude;
     QPushButton *m_offsetSign;

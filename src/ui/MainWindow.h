@@ -8,13 +8,11 @@
 #include "sdr/DeviceManager.h"
 #include "storage/SessionStore.h"
 
-#include <QList>
 #include <QMainWindow>
 
 #include <chrono>
 #include <memory>
 
-class QDockWidget;
 class QStackedWidget;
 
 namespace duality {
@@ -26,7 +24,9 @@ class DevicePanel;
 class PlaybackPanel;
 class SessionBrowser;
 class SpectrumWidget;
+class ToastManager;
 class TransmitPanel;
+class VizPanel;
 class WaterfallWidget;
 
 // Owns the application services (device manager, session store, pipelines)
@@ -40,7 +40,6 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
-    void resizeEvent(QResizeEvent *event) override;
 
 private slots:
     void startCapture(bool record);
@@ -51,11 +50,10 @@ private slots:
                        SampleFormat format, double speed, bool repeat);
 
 private:
-    void createDocks();
+    // Builds the Fob page: one tab row of control panels (top 3/4) over the
+    // switchable waterfall/FFT visualization (bottom 1/4).
+    QWidget *buildFobPage();
     void createToolbar();
-    // Below kCompactWidth the side docks move above/below the central view so
-    // the sections stack vertically instead of side by side.
-    void applyResponsiveLayout();
     Session *ensureSession();
     void cacheRecordingSpectrum(const RecordingMetadata &meta);
     void updateCaptureRangeOverlay();
@@ -114,18 +112,16 @@ private:
 
     // Views
     QStackedWidget *m_stack;
+    QStackedWidget *m_panelStack;
     SpectrumWidget *m_spectrumView;
     WaterfallWidget *m_waterfallView;
+    VizPanel *m_viz;
     DebugWorkspace *m_debugWorkspace;
     AboutPage *m_aboutPage;
+    ToastManager *m_toasts;
 
-    // Docks by wide-layout side, for the responsive re-arrangement.
-    QList<QDockWidget *> m_leftDocks;
-    QList<QDockWidget *> m_rightDocks;
-    bool m_compactLayout = false;
-    static constexpr int kCompactWidth = 960;
-    static constexpr int kLeftDockMinWidth = 520;
-    static constexpr int kRightDockMinWidth = 380;
+    static constexpr int kWindowWidth = 320;
+    static constexpr int kWindowHeight = 480;
 
     // Panels
     DevicePanel *m_devicePanel;

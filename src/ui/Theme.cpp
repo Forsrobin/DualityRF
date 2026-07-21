@@ -365,20 +365,34 @@ QToolButton:checked {
 QStatusBar {
     border-top: 1px solid #ffffff;
 }
-QScrollBar {
+QScrollBar:vertical {
     border: 1px solid #ffffff;
     background: #000000;
-    width: 12px;
-    height: 12px;
+    width: 20px;
+    margin: 0px;
 }
-QScrollBar::handle {
+QScrollBar::handle:vertical {
     background: #ffffff;
-    min-height: 18px;
-    min-width: 18px;
+    min-height: 24px;
+}
+QScrollBar:horizontal {
+    border: 1px solid #ffffff;
+    background: #000000;
+    height: 20px;
+    margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #ffffff;
+    min-width: 24px;
 }
 QScrollBar::add-line, QScrollBar::sub-line {
     width: 0px;
     height: 0px;
+    background: none;
+    border: none;
+}
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: none;
 }
 QSlider::groove:horizontal {
     border: 1px solid #ffffff;

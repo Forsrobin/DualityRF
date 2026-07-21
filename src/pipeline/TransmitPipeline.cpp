@@ -24,6 +24,28 @@ TransmitPipeline::~TransmitPipeline()
     stop();
 }
 
+std::unique_ptr<IWaveformGenerator>
+TransmitPipeline::buildGenerator(const WaveformConfig &waveform)
+{
+    std::vector<Complex> fileSamples;
+    if (waveform.type == WaveformType::IqFile) {
+        const RecordingMetadata meta = metadataForForeignFile(waveform.filePath);
+        fileSamples = IqFileReader::readAll(waveform.filePath, meta.format,
+                                            kMaxWaveformSamples);
+        if (fileSamples.empty()) {
+            emit errorOccurred(
+                tr("Cannot load waveform file: %1").arg(waveform.filePath));
+            return nullptr;
+        }
+    }
+
+    auto generator = makeWaveformGenerator(waveform, m_params.sampleRateHz,
+                                           std::move(fileSamples));
+    if (!generator)
+        emit errorOccurred(tr("Unsupported waveform"));
+    return generator;
+}
+
 bool TransmitPipeline::start(std::shared_ptr<ISDRDevice> device,
                              const StreamParams &params,
                              const WaveformConfig &waveform)
@@ -40,33 +62,34 @@ bool TransmitPipeline::start(std::shared_ptr<ISDRDevice> device,
         return false;
     }
 
-    std::vector<Complex> fileSamples;
-    if (waveform.type == WaveformType::IqFile) {
-        const RecordingMetadata meta = metadataForForeignFile(waveform.filePath);
-        fileSamples = IqFileReader::readAll(waveform.filePath, meta.format,
-                                            kMaxWaveformSamples);
-        if (fileSamples.empty()) {
-            emit errorOccurred(
-                tr("Cannot load waveform file: %1").arg(waveform.filePath));
-            return false;
-        }
-    }
-
-    auto generator = makeWaveformGenerator(waveform, params.sampleRateHz,
-                                           std::move(fileSamples));
-    if (!generator) {
-        emit errorOccurred(tr("Unsupported waveform"));
+    m_params = params;
+    auto generator = buildGenerator(waveform);
+    if (!generator)
         return false;
-    }
 
     m_device = std::move(device);
-    m_worker = std::jthread(
-        [this, gen = std::move(generator)](std::stop_token st) mutable {
-            workerLoop(st, std::move(gen));
-        });
+    {
+        std::lock_guard lock(m_genMutex);
+        m_generator = std::move(generator);
+    }
+    m_worker =
+        std::jthread([this](std::stop_token st) { workerLoop(st); });
     m_running = true;
     emit started();
     return true;
+}
+
+void TransmitPipeline::updateWaveform(const WaveformConfig &waveform)
+{
+    if (!m_running)
+        return;
+    // Build (and load any file) off the lock, then swap it in; keep the
+    // current waveform if the new one cannot be built.
+    auto generator = buildGenerator(waveform);
+    if (!generator)
+        return;
+    std::lock_guard lock(m_genMutex);
+    m_generator = std::move(generator);
 }
 
 void TransmitPipeline::stop()
@@ -76,11 +99,11 @@ void TransmitPipeline::stop()
         m_worker.join();
     }
     m_device.reset();
+    m_generator.reset();
     m_running = false;
 }
 
-void TransmitPipeline::workerLoop(std::stop_token st,
-                                  std::unique_ptr<IWaveformGenerator> generator)
+void TransmitPipeline::workerLoop(std::stop_token st)
 {
     ITransmitter *tx = m_device->transmitter();
     if (!tx->start()) {
@@ -96,7 +119,12 @@ void TransmitPipeline::workerLoop(std::stop_token st,
 
     std::vector<Complex> chunk(kChunkSamples);
     while (!st.stop_requested()) {
-        generator->generate(chunk);
+        {
+            // Only the generation is guarded; the blocking device write stays
+            // outside the lock so a live waveform swap never stalls on I/O.
+            std::lock_guard lock(m_genMutex);
+            m_generator->generate(chunk);
+        }
         std::size_t offset = 0;
         while (offset < chunk.size() && !st.stop_requested())
             offset += tx->write(

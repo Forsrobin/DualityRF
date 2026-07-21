@@ -1,5 +1,7 @@
 #include "ui/TransmitPanel.h"
 
+#include "ui/HazardButton.h"
+
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
@@ -21,7 +23,8 @@ const WaveformType kTypes[] = {
 
 TransmitPanel::TransmitPanel(QWidget *parent)
     : QWidget(parent)
-    , m_group(new QGroupBox(tr("CONCURRENT TX"), this))
+    , m_group(new QGroupBox(this))
+    , m_enableButton(new HazardButton(this))
     , m_type(new QComboBox(this))
     , m_amplitude(new QDoubleSpinBox(this))
     , m_offsetSign(new QPushButton(QStringLiteral("+"), this))
@@ -31,8 +34,10 @@ TransmitPanel::TransmitPanel(QWidget *parent)
     , m_browseButton(new QPushButton(tr("…"), this))
     , m_gain(new QDoubleSpinBox(this))
 {
-    m_group->setCheckable(true);
-    m_group->setChecked(false);
+    // Enable/disable is a toggle button whose label reflects the state.
+    m_enableButton->setCheckable(true);
+    m_enableButton->setChecked(false);
+    m_enableButton->setText(tr("DISABLED"));
 
     for (WaveformType t : kTypes)
         m_type->addItem(waveformName(t));
@@ -78,6 +83,7 @@ TransmitPanel::TransmitPanel(QWidget *parent)
 
     auto *form = new QFormLayout(m_group);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    form->addRow(m_enableButton);
     form->addRow(tr("Waveform"), m_type);
     form->addRow(tr("Amplitude"), m_amplitude);
     form->addRow(tr("Offset"), offsetRow);
@@ -88,13 +94,32 @@ TransmitPanel::TransmitPanel(QWidget *parent)
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_group);
+    // Keep the group box at its natural height (top-anchored) instead of
+    // stretching to fill the scroll viewport, which would leave it with dead
+    // space and nothing to scroll.
+    layout->addStretch(1);
 
     connect(m_type, &QComboBox::currentIndexChanged, this,
             &TransmitPanel::onTypeChanged);
     connect(m_browseButton, &QPushButton::clicked, this,
             &TransmitPanel::browseFile);
-    connect(m_group, &QGroupBox::toggled, this,
-            &TransmitPanel::enabledChanged);
+    connect(m_enableButton, &QPushButton::toggled, this, [this](bool on) {
+        m_enableButton->setText(on ? tr("ENABLED") : tr("DISABLED"));
+        emit enabledChanged(on);
+    });
+
+    // Any waveform-parameter edit re-emits waveformChanged so a live
+    // transmission can swap to the new waveform.
+    connect(m_type, &QComboBox::currentIndexChanged, this,
+            &TransmitPanel::waveformChanged);
+    connect(m_offsetSign, &QPushButton::toggled, this,
+            &TransmitPanel::waveformChanged);
+    connect(m_filePath, &QLineEdit::textChanged, this,
+            &TransmitPanel::waveformChanged);
+    for (QDoubleSpinBox *box : {m_amplitude, m_offset, m_range})
+        connect(box, &QDoubleSpinBox::valueChanged, this,
+                &TransmitPanel::waveformChanged);
+
     onTypeChanged();
 }
 
@@ -120,12 +145,12 @@ void TransmitPanel::browseFile()
 
 bool TransmitPanel::transmitEnabled() const
 {
-    return m_group->isChecked();
+    return m_enableButton->isChecked();
 }
 
 void TransmitPanel::setTransmitEnabled(bool enabled)
 {
-    m_group->setChecked(enabled);
+    m_enableButton->setChecked(enabled);
 }
 
 WaveformConfig TransmitPanel::waveformConfig() const

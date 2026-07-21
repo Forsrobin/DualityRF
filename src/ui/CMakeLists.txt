@@ -5,6 +5,14 @@ add_library(duality_ui STATIC
     SpectrumWidget.cpp
     WaterfallWidget.h
     WaterfallWidget.cpp
+    VizPanel.h
+    VizPanel.cpp
+    FlowLayout.h
+    FlowLayout.cpp
+    HazardButton.h
+    HazardButton.cpp
+    ToastManager.h
+    ToastManager.cpp
     DevicePanel.h
     DevicePanel.cpp
     CapturePanel.h

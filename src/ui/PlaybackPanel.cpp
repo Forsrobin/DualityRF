@@ -2,6 +2,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QLabel>
@@ -9,9 +10,11 @@
 
 namespace duality {
 
-PlaybackPanel::PlaybackPanel(QWidget *parent)
+PlaybackPanel::PlaybackPanel(SessionStore *store, QWidget *parent)
     : QWidget(parent)
-    , m_recordingLabel(new QLabel(tr("(no recording selected)"), this))
+    , m_store(store)
+    , m_sessionCombo(new QComboBox(this))
+    , m_recordingCombo(new QComboBox(this))
     , m_frequency(new QDoubleSpinBox(this))
     , m_sampleRate(new QDoubleSpinBox(this))
     , m_gain(new QDoubleSpinBox(this))
@@ -41,7 +44,8 @@ PlaybackPanel::PlaybackPanel(QWidget *parent)
 
     auto *layout = new QFormLayout(this);
     layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    layout->addRow(tr("Recording"), m_recordingLabel);
+    layout->addRow(tr("Session"), m_sessionCombo);
+    layout->addRow(tr("Recording"), m_recordingCombo);
     layout->addRow(tr("Frequency"), m_frequency);
     layout->addRow(tr("Sample rate"), m_sampleRate);
     layout->addRow(tr("TX gain"), m_gain);
@@ -51,22 +55,79 @@ PlaybackPanel::PlaybackPanel(QWidget *parent)
     layout->addRow(m_stopButton);
     layout->addRow(m_progressLabel);
 
+    connect(m_sessionCombo, &QComboBox::currentIndexChanged, this,
+            &PlaybackPanel::onSessionChanged);
+    connect(m_recordingCombo, &QComboBox::currentIndexChanged, this,
+            &PlaybackPanel::applyCurrent);
     connect(m_playButton, &QPushButton::clicked, this,
             &PlaybackPanel::playRequested);
     connect(m_stopButton, &QPushButton::clicked, this,
             &PlaybackPanel::stopRequested);
     setPlaying(false);
-    m_playButton->setEnabled(false);
+    refresh();
 }
 
-void PlaybackPanel::setRecording(const RecordingMetadata &meta,
-                                 const QString &absPath)
+void PlaybackPanel::refresh()
 {
-    m_meta = meta;
-    m_path = absPath;
-    m_recordingLabel->setText(meta.file);
-    m_frequency->setValue(meta.frequencyHz / 1e6);
-    m_sampleRate->setValue(meta.sampleRateHz / 1e6);
+    // Preserve the current session across a reload if it still exists.
+    const QString previous = m_sessionCombo->currentData().toString();
+    m_sessionCombo->blockSignals(true);
+    m_sessionCombo->clear();
+    for (const QString &dir : m_store->listSessionDirs())
+        m_sessionCombo->addItem(QDir(dir).dirName(), dir);
+    int index = m_sessionCombo->findData(previous);
+    if (index < 0)
+        index = m_sessionCombo->count() > 0 ? 0 : -1; // newest, or none
+    m_sessionCombo->setCurrentIndex(index);
+    m_sessionCombo->blockSignals(false);
+    onSessionChanged(index);
+}
+
+void PlaybackPanel::select(const QString &sessionDir, const QString &file)
+{
+    refresh();
+    const int sessionIdx = m_sessionCombo->findData(sessionDir);
+    if (sessionIdx < 0)
+        return;
+    m_sessionCombo->blockSignals(true);
+    m_sessionCombo->setCurrentIndex(sessionIdx);
+    m_sessionCombo->blockSignals(false);
+    onSessionChanged(sessionIdx); // load that session's recordings
+
+    const int recIdx = m_recordingCombo->findText(file);
+    if (recIdx >= 0)
+        m_recordingCombo->setCurrentIndex(recIdx); // applyCurrent via signal
+}
+
+void PlaybackPanel::onSessionChanged(int index)
+{
+    m_session.reset();
+    m_recordingCombo->blockSignals(true);
+    m_recordingCombo->clear();
+    if (index >= 0) {
+        m_session = Session::load(m_sessionCombo->itemData(index).toString());
+        if (m_session)
+            for (const RecordingMetadata &meta : m_session->recordings())
+                m_recordingCombo->addItem(meta.file);
+    }
+    const int recIdx = m_recordingCombo->count() > 0 ? 0 : -1;
+    m_recordingCombo->setCurrentIndex(recIdx);
+    m_recordingCombo->blockSignals(false);
+    applyCurrent(recIdx);
+}
+
+void PlaybackPanel::applyCurrent(int index)
+{
+    if (!m_session || index < 0 || index >= m_session->recordings().size()) {
+        m_meta = RecordingMetadata{};
+        m_path.clear();
+        m_playButton->setEnabled(false);
+        return;
+    }
+    m_meta = m_session->recordings()[index];
+    m_path = m_session->recordingPath(m_meta);
+    m_frequency->setValue(m_meta.frequencyHz / 1e6);
+    m_sampleRate->setValue(m_meta.sampleRateHz / 1e6);
     m_playButton->setEnabled(true);
 }
 
