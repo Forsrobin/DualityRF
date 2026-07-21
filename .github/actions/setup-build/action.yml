@@ -1,0 +1,75 @@
+name: Setup build environment
+description: >
+  Install and verify the Qt6, SoapySDR and FFTW toolchain plus CMake/Ninja/GCC,
+  and restore the ccache for the given architecture. Works on both x86_64 and
+  arm64 GitHub-hosted Ubuntu runners with no pre-provisioning.
+
+inputs:
+  arch:
+    description: Target architecture label (x86_64 or arm64), used as the ccache key.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ccache-${{ inputs.arch }}-${{ github.sha }}
+        restore-keys: |
+          ccache-${{ inputs.arch }}-
+
+    - name: Install build dependencies
+      shell: bash
+      run: |
+        set -euxo pipefail
+        sudo apt-get update
+        # Toolchain + core libraries (reliably named on Ubuntu 24.04).
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          build-essential \
+          cmake \
+          ninja-build \
+          pkg-config \
+          ccache \
+          qt6-base-dev \
+          qt6-base-dev-tools \
+          libgl1-mesa-dev \
+          libegl1-mesa-dev \
+          libsoapysdr-dev \
+          soapysdr-tools \
+          libfftw3-dev
+        # SoapySDR device modules the project is used with (runtime, not needed
+        # to build/verify — best-effort so a renamed package can't break CI).
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          soapysdr-module-hackrf soapysdr-module-rtlsdr \
+          || echo "::warning::Some SoapySDR device modules were unavailable on this runner"
+
+    - name: Configure ccache
+      shell: bash
+      run: |
+        set -euxo pipefail
+        ccache --max-size=500M
+        ccache --zero-stats
+
+    - name: Verify Qt6 installation
+      shell: bash
+      run: |
+        set -euxo pipefail
+        qmake6 --version
+        echo "Qt6 version: $(qmake6 -query QT_VERSION)"
+        test -f "$(qmake6 -query QT_INSTALL_LIBS)/cmake/Qt6Widgets/Qt6WidgetsConfig.cmake" \
+          && echo "Qt6 Widgets CMake package found"
+
+    - name: Verify SoapySDR installation
+      shell: bash
+      run: |
+        set -euxo pipefail
+        SoapySDRUtil --info
+        pkg-config --exists SoapySDR && echo "SoapySDR: $(pkg-config --modversion SoapySDR)"
+
+    - name: Verify FFTW installation
+      shell: bash
+      run: |
+        set -euxo pipefail
+        echo "fftw3f: $(pkg-config --modversion fftw3f)"

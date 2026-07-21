@@ -1,0 +1,14 @@
+{
+  "name": "dualityrf",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tooling for DualityRF: Conventional Commit enforcement (Husky + commitlint).",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.5.0",
+    "@commitlint/config-conventional": "^19.5.0",
+    "husky": "^9.1.6"
+  }
+}

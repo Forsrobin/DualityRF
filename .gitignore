@@ -41,3 +41,10 @@ build/
 *.dwangd
 compile_commands.json
 build/
+
+# Node tooling (commitlint / husky)
+node_modules/
+
+# Release packaging output
+dist/
+notes.md

@@ -118,6 +118,9 @@ all welcome:
   [issue tracker](https://github.com/Forsrobin/DualityRF/issues).
 - To contribute code, fork the repository, create a feature branch and open
   a pull request. Please keep changes buildable with the `release` preset.
+- Commit messages must follow [Conventional Commits](docs/RELEASE.md#conventional-commits)
+  (`feat` / `fix` / `chore`, with `!` for breaking changes). Run `npm install`
+  once to enable the local commit-message hook.
 - The design documents in [docs/](docs/) are the best starting point for
   understanding the codebase.
 
@@ -126,7 +129,8 @@ all welcome:
 Design documents live in [docs/](docs/):
 [architecture](docs/ARCHITECTURE.md) · [threading](docs/THREADING.md) ·
 [storage format](docs/STORAGE.md) · [UI design](docs/UI.md) ·
-[implementation plan](docs/IMPLEMENTATION_PLAN.md).
+[implementation plan](docs/IMPLEMENTATION_PLAN.md) ·
+[release & versioning](docs/RELEASE.md).
 
 ## Layout
 

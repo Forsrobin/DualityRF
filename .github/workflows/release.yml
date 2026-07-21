@@ -1,0 +1,163 @@
+name: Release
+
+# Every merge into a release branch runs the full pipeline: compute the next
+# semantic version, build both Linux architectures, publish a GitHub Release and
+# sync the version back into the repository.
+on:
+  push:
+    branches:
+      - "release/**"
+  workflow_dispatch:
+
+# One release at a time per branch; never cancel a release mid-flight.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # 1. Determine the next version from Conventional Commits since the last tag.
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    # Skip the run the pipeline creates itself when it commits the version bump.
+    if: "${{ github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore: release v') }}"
+    outputs:
+      bump: ${{ steps.semver.outputs.bump }}
+      version: ${{ steps.semver.outputs.version }}
+      tag: ${{ steps.semver.outputs.tag }}
+      previous: ${{ steps.semver.outputs.previous }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for semver calculation
+
+      - name: Calculate next version
+        id: semver
+        run: bash scripts/next-version.sh
+
+      - name: Summary
+        run: |
+          echo "Previous: ${{ steps.semver.outputs.previous }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Bump: ${{ steps.semver.outputs.bump }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Next: ${{ steps.semver.outputs.version }} (${{ steps.semver.outputs.tag }})" >> "$GITHUB_STEP_SUMMARY"
+
+  # 2. Build + package both Linux architectures. Any build failure fails the job
+  #    (and therefore the release) immediately.
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: version
+    if: needs.version.outputs.bump != 'none'
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-24.04
+          - arch: arm64
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: ccache stats
+        run: ccache --show-stats
+
+      - name: Package
+        id: package
+        run: |
+          set -euxo pipefail
+          version="${{ needs.version.outputs.version }}"
+          pkg="dualityrf-${version}-linux-${{ matrix.arch }}"
+          stage="dist/${pkg}"
+          mkdir -p "${stage}"
+          cp build/src/duality_rf "${stage}/"
+          cp README.md "${stage}/" 2>/dev/null || true
+          tar -czf "dist/${pkg}.tar.gz" -C dist "${pkg}"
+          sha256sum "dist/${pkg}.tar.gz" > "dist/${pkg}.tar.gz.sha256"
+          echo "name=${pkg}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  # 3. Create the GitHub Release, tag it and attach both binaries.
+  release:
+    name: Publish release
+    needs: [version, build]
+    if: needs.version.outputs.bump != 'none'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags + history for the changelog
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate release notes
+        run: bash scripts/release-notes.sh "${{ needs.version.outputs.version }}" > notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          gh release create "${{ needs.version.outputs.tag }}" \
+            --title "${{ needs.version.outputs.tag }}" \
+            --notes-file notes.md \
+            --target "${{ github.sha }}" \
+            artifacts/*.tar.gz artifacts/*.sha256
+
+  # 4. Bump the repository version and push it back to the release branch.
+  sync-version:
+    name: Sync repository version
+    needs: [version, release]
+    if: needs.version.outputs.bump != 'none'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          token: ${{ github.token }}
+
+      - name: Bump version file
+        run: bash scripts/bump-version.sh "${{ needs.version.outputs.version }}"
+
+      - name: Commit and push
+        run: |
+          set -euxo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "Version already in sync; nothing to commit."
+            exit 0
+          fi
+          git add CMakeLists.txt
+          # [skip ci] + the head-commit guard both prevent a re-trigger loop.
+          git commit -m "chore: release ${{ needs.version.outputs.tag }} [skip ci]"
+          git push origin "HEAD:${{ github.ref_name }}"

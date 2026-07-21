@@ -1,0 +1,49 @@
+name: Commit Lint
+
+# Enforce Conventional Commits in CI so invalid commits can't be merged even if
+# a developer bypasses the local Husky hook.
+on:
+  pull_request:
+  push:
+    branches:
+      - "release/**"
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    name: Validate commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install commitlint
+        run: npm ci || npm install
+
+      - name: Lint PR commits
+        if: github.event_name == 'pull_request'
+        run: >
+          npx commitlint
+          --from ${{ github.event.pull_request.base.sha }}
+          --to ${{ github.event.pull_request.head.sha }}
+          --verbose
+
+      - name: Lint pushed commits
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          before="${{ github.event.before }}"
+          # First push to a new branch has an all-zero "before"; lint the last commit.
+          if [[ "$before" =~ ^0+$ ]]; then
+            npx commitlint --from "HEAD~1" --to "HEAD" --verbose
+          else
+            npx commitlint --from "$before" --to "${{ github.sha }}" --verbose
+          fi
