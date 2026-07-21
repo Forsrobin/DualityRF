@@ -6,6 +6,19 @@
 
 namespace duality {
 
+namespace {
+// QImage::flipped() is Qt 6.9+; fall back to the older mirrored() on the Qt 6.4
+// shipped by Ubuntu (used in CI).
+QImage flippedVertical(const QImage &image)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+    return image.flipped(Qt::Vertical);
+#else
+    return image.mirrored(false, true);
+#endif
+}
+} // namespace
+
 WaterfallWidget::WaterfallWidget(QWidget *parent)
     : QWidget(parent)
 {
@@ -76,16 +89,15 @@ void WaterfallWidget::paintEvent(QPaintEvent *)
     // Slice 1: rows [start..newest] where start is the oldest of the newest
     // contiguous run ending at `newest`.
     const int run1 = newest + 1; // rows 0..newest, newest first when flipped
-    const QImage top = m_image.copy(0, 0, m_image.width(), run1)
-                           .flipped(Qt::Vertical);
+    const QImage top =
+        flippedVertical(m_image.copy(0, 0, m_image.width(), run1));
     painter.drawImage(QRectF(0, 0, width(),
                              rowHeight * std::min(run1, rowsToShow)),
                       top);
     if (rowsToShow > run1) {
         const int run2 = rowsToShow - run1;
-        const QImage bottom =
-            m_image.copy(0, kHistory - run2, m_image.width(), run2)
-                .flipped(Qt::Vertical);
+        const QImage bottom = flippedVertical(
+            m_image.copy(0, kHistory - run2, m_image.width(), run2));
         painter.drawImage(
             QRectF(0, rowHeight * run1, width(), rowHeight * run2), bottom);
     }
