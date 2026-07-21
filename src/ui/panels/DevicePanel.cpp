@@ -1,4 +1,4 @@
-#include "ui/DevicePanel.h"
+#include "ui/panels/DevicePanel.h"
 
 #include "sdr/DeviceManager.h"
 

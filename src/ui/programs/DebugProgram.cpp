@@ -4,9 +4,9 @@
 #include "dsp/Measurements.h"
 #include "dsp/SpectrumAccumulator.h"
 #include "storage/IqFileReader.h"
-#include "ui/SpectrumWidget.h"
-#include "ui/VizPanel.h"
-#include "ui/WaterfallWidget.h"
+#include "ui/widgets/SpectrumWidget.h"
+#include "ui/panels/VizPanel.h"
+#include "ui/widgets/WaterfallWidget.h"
 
 #include <QComboBox>
 #include <QDir>

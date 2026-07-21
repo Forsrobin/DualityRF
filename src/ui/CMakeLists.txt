@@ -1,34 +1,45 @@
 add_library(duality_ui STATIC
+    # App + screens (main ui folder)
     Theme.h
     Theme.cpp
-    SpectrumWidget.h
-    SpectrumWidget.cpp
-    WaterfallWidget.h
-    WaterfallWidget.cpp
-    VizPanel.h
-    VizPanel.cpp
-    FlowLayout.h
-    FlowLayout.cpp
-    HazardButton.h
-    HazardButton.cpp
-    ToastManager.h
-    ToastManager.cpp
     HomePage.h
     HomePage.cpp
     ProgramScreen.h
     ProgramScreen.cpp
     SplashPage.h
     SplashPage.cpp
-    DevicePanel.h
-    DevicePanel.cpp
-    CapturePanel.h
-    CapturePanel.cpp
-    TransmitPanel.h
-    TransmitPanel.cpp
-    PlaybackPanel.h
-    PlaybackPanel.cpp
-    SessionBrowser.h
-    SessionBrowser.cpp
+    MainWindow.h
+    MainWindow.cpp
+
+    # Reusable components
+    components/FlowLayout.h
+    components/FlowLayout.cpp
+    components/HazardButton.h
+    components/HazardButton.cpp
+    components/ToastManager.h
+    components/ToastManager.cpp
+
+    # Visualization widgets
+    widgets/SpectrumWidget.h
+    widgets/SpectrumWidget.cpp
+    widgets/WaterfallWidget.h
+    widgets/WaterfallWidget.cpp
+
+    # Control panels
+    panels/DevicePanel.h
+    panels/DevicePanel.cpp
+    panels/CapturePanel.h
+    panels/CapturePanel.cpp
+    panels/TransmitPanel.h
+    panels/TransmitPanel.cpp
+    panels/PlaybackPanel.h
+    panels/PlaybackPanel.cpp
+    panels/SessionBrowser.h
+    panels/SessionBrowser.cpp
+    panels/VizPanel.h
+    panels/VizPanel.cpp
+
+    # Program screens
     programs/FobProgram.h
     programs/FobProgram.cpp
     programs/TxProgram.h
@@ -37,8 +48,6 @@ add_library(duality_ui STATIC
     programs/DebugProgram.cpp
     programs/InfoProgram.h
     programs/InfoProgram.cpp
-    MainWindow.h
-    MainWindow.cpp
 )
 
 target_link_libraries(duality_ui

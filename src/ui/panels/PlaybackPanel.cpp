@@ -1,4 +1,4 @@
-#include "ui/PlaybackPanel.h"
+#include "ui/panels/PlaybackPanel.h"
 
 #include <QCheckBox>
 #include <QComboBox>

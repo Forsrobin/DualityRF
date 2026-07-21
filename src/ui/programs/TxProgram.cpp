@@ -1,8 +1,8 @@
 #include "ui/programs/TxProgram.h"
 
-#include "ui/HazardButton.h"
-#include "ui/SpectrumWidget.h"
-#include "ui/WaterfallWidget.h"
+#include "ui/components/HazardButton.h"
+#include "ui/widgets/SpectrumWidget.h"
+#include "ui/widgets/WaterfallWidget.h"
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -120,6 +120,8 @@ TxProgram::TxProgram(QWidget *parent)
 
     m_startButton->setText(tr("START"));
     m_startButton->setCheckable(true);
+    // Always striped so it reads as a transmit trigger, running or not.
+    m_startButton->setAlwaysHazard(true);
 
     m_spectrum->setMinimumHeight(64);
     m_waterfall->setMinimumHeight(64);

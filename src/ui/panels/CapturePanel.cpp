@@ -1,4 +1,4 @@
-#include "ui/CapturePanel.h"
+#include "ui/panels/CapturePanel.h"
 
 #include <QComboBox>
 #include <QDoubleSpinBox>

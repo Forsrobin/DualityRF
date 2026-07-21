@@ -1,14 +1,14 @@
 #include "ui/programs/FobProgram.h"
 
-#include "ui/CapturePanel.h"
-#include "ui/DevicePanel.h"
-#include "ui/FlowLayout.h"
-#include "ui/PlaybackPanel.h"
-#include "ui/SessionBrowser.h"
-#include "ui/SpectrumWidget.h"
-#include "ui/TransmitPanel.h"
-#include "ui/VizPanel.h"
-#include "ui/WaterfallWidget.h"
+#include "ui/panels/CapturePanel.h"
+#include "ui/panels/DevicePanel.h"
+#include "ui/components/FlowLayout.h"
+#include "ui/panels/PlaybackPanel.h"
+#include "ui/panels/SessionBrowser.h"
+#include "ui/widgets/SpectrumWidget.h"
+#include "ui/panels/TransmitPanel.h"
+#include "ui/panels/VizPanel.h"
+#include "ui/widgets/WaterfallWidget.h"
 
 #include <QButtonGroup>
 #include <QPushButton>

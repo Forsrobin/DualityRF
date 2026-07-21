@@ -1,4 +1,4 @@
-#include "ui/SpectrumWidget.h"
+#include "ui/widgets/SpectrumWidget.h"
 
 #include "ui/Theme.h"
 

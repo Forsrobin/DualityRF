@@ -1,6 +1,6 @@
-#include "ui/TransmitPanel.h"
+#include "ui/panels/TransmitPanel.h"
 
-#include "ui/HazardButton.h"
+#include "ui/components/HazardButton.h"
 
 #include <QComboBox>
 #include <QDoubleSpinBox>

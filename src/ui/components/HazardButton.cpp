@@ -1,4 +1,4 @@
-#include "ui/HazardButton.h"
+#include "ui/components/HazardButton.h"
 
 #include <QFontMetrics>
 #include <QPainter>
@@ -19,10 +19,19 @@ HazardButton::HazardButton(QWidget *parent)
     setCheckable(true);
 }
 
+void HazardButton::setAlwaysHazard(bool on)
+{
+    if (m_alwaysHazard == on)
+        return;
+    m_alwaysHazard = on;
+    update();
+}
+
 void HazardButton::paintEvent(QPaintEvent *event)
 {
-    // Unchecked: leave the normal themed appearance untouched.
-    if (!isChecked()) {
+    // Unchecked: leave the normal themed appearance untouched, unless the
+    // button is pinned to always show the hazard stripes.
+    if (!isChecked() && !m_alwaysHazard) {
         QPushButton::paintEvent(event);
         return;
     }
