@@ -29,10 +29,14 @@ add_library(duality_ui STATIC
     PlaybackPanel.cpp
     SessionBrowser.h
     SessionBrowser.cpp
-    DebugWorkspace.h
-    DebugWorkspace.cpp
-    AboutPage.h
-    AboutPage.cpp
+    programs/FobProgram.h
+    programs/FobProgram.cpp
+    programs/TxProgram.h
+    programs/TxProgram.cpp
+    programs/DebugProgram.h
+    programs/DebugProgram.cpp
+    programs/InfoProgram.h
+    programs/InfoProgram.cpp
     MainWindow.h
     MainWindow.cpp
 )

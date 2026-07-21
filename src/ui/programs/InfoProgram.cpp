@@ -1,4 +1,4 @@
-#include "ui/AboutPage.h"
+#include "ui/programs/InfoProgram.h"
 
 #include "core/Version.h"
 
@@ -38,7 +38,7 @@ QString link(const QString &url, const QString &text)
 }
 } // namespace
 
-AboutPage::AboutPage(QWidget *parent)
+InfoProgram::InfoProgram(QWidget *parent)
     : QWidget(parent)
 {
     // Content column, centered and width-capped so lines stay readable on a

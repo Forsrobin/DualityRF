@@ -19,10 +19,10 @@ class WaterfallWidget;
 // Offline analysis view: open a session, compare two recordings (A/B) with
 // overlaid average FFTs, per-recording waterfall, side-by-side metadata and
 // measured signal characteristics; replay either recording.
-class DebugWorkspace : public QWidget {
+class DebugProgram : public QWidget {
     Q_OBJECT
 public:
-    explicit DebugWorkspace(SessionStore *store, QWidget *parent = nullptr);
+    explicit DebugProgram(SessionStore *store, QWidget *parent = nullptr);
 
     void refreshSessions();
 
