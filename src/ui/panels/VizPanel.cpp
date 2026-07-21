@@ -1,4 +1,4 @@
-#include "ui/VizPanel.h"
+#include "ui/panels/VizPanel.h"
 
 #include <QButtonGroup>
 #include <QHBoxLayout>

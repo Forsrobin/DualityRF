@@ -1,12 +1,12 @@
-#include "ui/DebugWorkspace.h"
+#include "ui/programs/DebugProgram.h"
 
 #include "dsp/FftEngine.h"
 #include "dsp/Measurements.h"
 #include "dsp/SpectrumAccumulator.h"
 #include "storage/IqFileReader.h"
-#include "ui/SpectrumWidget.h"
-#include "ui/VizPanel.h"
-#include "ui/WaterfallWidget.h"
+#include "ui/widgets/SpectrumWidget.h"
+#include "ui/panels/VizPanel.h"
+#include "ui/widgets/WaterfallWidget.h"
 
 #include <QComboBox>
 #include <QDir>
@@ -66,7 +66,7 @@ QVector<QVector<float>> waterfallRows(const QString &path,
 
 } // namespace
 
-DebugWorkspace::DebugWorkspace(SessionStore *store, QWidget *parent)
+DebugProgram::DebugProgram(SessionStore *store, QWidget *parent)
     : QWidget(parent)
     , m_store(store)
     , m_sessionCombo(new QComboBox(this))
@@ -116,11 +116,11 @@ DebugWorkspace::DebugWorkspace(SessionStore *store, QWidget *parent)
     layout->addWidget(viz, 1);
 
     connect(m_sessionCombo, &QComboBox::currentIndexChanged, this,
-            &DebugWorkspace::onSessionChanged);
+            &DebugProgram::onSessionChanged);
     connect(m_recordingA, &QComboBox::currentIndexChanged, this,
-            &DebugWorkspace::onRecordingChanged);
+            &DebugProgram::onRecordingChanged);
     connect(m_recordingB, &QComboBox::currentIndexChanged, this,
-            &DebugWorkspace::onRecordingChanged);
+            &DebugProgram::onRecordingChanged);
     connect(m_replayA, &QPushButton::clicked, this, [this] {
         const int idx = m_recordingA->currentIndex();
         if (m_session && idx >= 0 && idx < m_session->recordings().size()) {
@@ -139,7 +139,7 @@ DebugWorkspace::DebugWorkspace(SessionStore *store, QWidget *parent)
     refreshSessions();
 }
 
-void DebugWorkspace::refreshSessions()
+void DebugProgram::refreshSessions()
 {
     const QString previous = m_sessionCombo->currentText();
     m_sessionCombo->blockSignals(true);
@@ -153,7 +153,7 @@ void DebugWorkspace::refreshSessions()
     onSessionChanged(m_sessionCombo->currentIndex());
 }
 
-void DebugWorkspace::onSessionChanged(int index)
+void DebugProgram::onSessionChanged(int index)
 {
     m_session.reset();
     m_recordingA->clear();
@@ -176,12 +176,12 @@ void DebugWorkspace::onSessionChanged(int index)
     updateViews();
 }
 
-void DebugWorkspace::onRecordingChanged()
+void DebugProgram::onRecordingChanged()
 {
     updateViews();
 }
 
-DebugWorkspace::Analysis DebugWorkspace::analyzeRecording(int recordingIndex)
+DebugProgram::Analysis DebugProgram::analyzeRecording(int recordingIndex)
 {
     Analysis a;
     if (!m_session || recordingIndex < 0 ||
@@ -229,7 +229,7 @@ DebugWorkspace::Analysis DebugWorkspace::analyzeRecording(int recordingIndex)
     return a;
 }
 
-void DebugWorkspace::updateViews()
+void DebugProgram::updateViews()
 {
     const Analysis a = analyzeRecording(m_recordingA->currentIndex());
     const Analysis b = analyzeRecording(m_recordingB->currentIndex());
@@ -251,7 +251,7 @@ void DebugWorkspace::updateViews()
     fillTable(a, b);
 }
 
-void DebugWorkspace::fillTable(const Analysis &a, const Analysis &b)
+void DebugProgram::fillTable(const Analysis &a, const Analysis &b)
 {
     struct Row {
         QString name;

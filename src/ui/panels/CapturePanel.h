@@ -19,7 +19,6 @@ public:
     explicit CapturePanel(QWidget *parent = nullptr);
 
     StreamParams streamParams() const;
-    double durationSec() const;
     QString trigger() const;
     double peakThresholdDb() const;
     // ± capture range (half-width) in Hz, used for the spectrum overlay and to
@@ -51,7 +50,6 @@ private:
     QDoubleSpinBox *m_sampleRate;
     QDoubleSpinBox *m_bandwidth;
     QDoubleSpinBox *m_gain;
-    QDoubleSpinBox *m_duration;
     QDoubleSpinBox *m_peakThreshold;
     QDoubleSpinBox *m_captureRange;
     QDoubleSpinBox *m_hangTime;

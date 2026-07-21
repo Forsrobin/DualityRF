@@ -1,4 +1,4 @@
-#include "ui/SessionBrowser.h"
+#include "ui/panels/SessionBrowser.h"
 
 #include <QHeaderView>
 #include <QMenu>

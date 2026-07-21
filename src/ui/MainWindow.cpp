@@ -2,35 +2,30 @@
 
 #include "dsp/SpectrumAccumulator.h"
 #include "storage/IqFileReader.h"
-#include "ui/AboutPage.h"
-#include "ui/CapturePanel.h"
-#include "ui/DebugWorkspace.h"
-#include "ui/DevicePanel.h"
-#include "ui/FlowLayout.h"
+#include "ui/panels/CapturePanel.h"
+#include "ui/panels/DevicePanel.h"
 #include "ui/HomePage.h"
-#include "ui/PlaybackPanel.h"
+#include "ui/panels/PlaybackPanel.h"
 #include "ui/ProgramScreen.h"
-#include "ui/SessionBrowser.h"
-#include "ui/SpectrumWidget.h"
+#include "ui/panels/SessionBrowser.h"
+#include "ui/widgets/SpectrumWidget.h"
 #include "ui/SplashPage.h"
 #include "ui/Theme.h"
-#include "ui/ToastManager.h"
-#include "ui/TransmitPanel.h"
-#include "ui/VizPanel.h"
-#include "ui/WaterfallWidget.h"
+#include "ui/components/ToastManager.h"
+#include "ui/panels/TransmitPanel.h"
+#include "ui/widgets/WaterfallWidget.h"
+#include "ui/programs/DebugProgram.h"
+#include "ui/programs/FobProgram.h"
+#include "ui/programs/InfoProgram.h"
+#include "ui/programs/JamProgram.h"
 
 #include <QApplication>
-#include <QButtonGroup>
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QDebug>
-#include <QLabel>
-#include <QPushButton>
-#include <QScrollArea>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QTimer>
-#include <QVBoxLayout>
 #include <QWidget>
 
 #include <algorithm>
@@ -48,7 +43,8 @@ constexpr int kReplayTxSettleMs = 750;
 constexpr int kSplashMinimumMs = 1500;
 } // namespace
 
-MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
+MainWindow::MainWindow()
+    : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor) {
   setWindowTitle(QStringLiteral("DUALITY RF"));
 
   // Fixed 320x480 portrait popout: not resizable. Equal min/max size is also
@@ -60,8 +56,8 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
   Theme::apply(*qApp, true);
 
   // Central stack: the home grid (index 0) launches each program screen.
-  m_debugWorkspace = new DebugWorkspace(&m_store, this);
-  m_aboutPage = new AboutPage(this);
+  m_debugProgram = new DebugProgram(&m_store, this);
+  m_infoProgram = new InfoProgram(this);
 
   m_stack = new QStackedWidget(this);
   setCentralWidget(m_stack);
@@ -71,12 +67,25 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
   connect(m_home, &HomePage::programActivated, this,
           [this](int index) { m_stack->setCurrentIndex(index + 1); });
 
-  // Register programs — add a line here to add a new screen. buildFobPage()
-  // must run before the panel signals are wired below (it creates the panels).
-  addProgram(tr("FOB"), QStringLiteral(":/assets/fob.png"), buildFobPage());
+  // Register programs — add a line here to add a new screen. The FOB program
+  // must be built before the panel signals are wired below (it owns them).
+  m_fobProgram = new FobProgram(&m_deviceManager, &m_store, this);
+  // Keep alias pointers so the rest of the wiring reads the panels directly.
+  m_devicePanel = m_fobProgram->devicePanel();
+  m_capturePanel = m_fobProgram->capturePanel();
+  m_transmitPanel = m_fobProgram->transmitPanel();
+  m_playbackPanel = m_fobProgram->playbackPanel();
+  m_sessionBrowser = m_fobProgram->sessionBrowser();
+  m_spectrumView = m_fobProgram->spectrumView();
+  m_waterfallView = m_fobProgram->waterfallView();
+  addProgram(tr("FOB"), QStringLiteral(":/assets/fob.png"), m_fobProgram);
+
+  m_jamProgram = new JamProgram(this);
+  m_jamScreen = addProgram(tr("JAM"), QStringLiteral(":/assets/jam.png"),
+                           m_jamProgram);
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
-                             m_debugWorkspace);
-  addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_aboutPage);
+                             m_debugProgram);
+  addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
 
   // Only program screens carry a status bar; the home grid has its own footer
   // and the splash is chrome-free. Refresh debug sessions when it opens.
@@ -84,7 +93,10 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
     statusBar()->setVisible(
         qobject_cast<ProgramScreen *>(m_stack->currentWidget()) != nullptr);
     if (m_stack->currentWidget() == m_debugScreen)
-      m_debugWorkspace->refreshSessions();
+      m_debugProgram->refreshSessions();
+    // Leaving the Jam screen stops its transmission so it can't run unseen.
+    if (m_jamActive && m_stack->currentWidget() != m_jamScreen)
+      stopJam();
   });
 
   // Boot splash lives in the stack too; show it first, then reveal the home
@@ -194,11 +206,11 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
   connect(m_sessionBrowser, &SessionBrowser::newSessionRequested, this, [this] {
     m_session = m_store.createSession();
     m_sessionBrowser->refresh();
-    m_debugWorkspace->refreshSessions();
+    m_debugProgram->refreshSessions();
     m_playbackPanel->refresh();
     statusBar()->showMessage(tr("Created %1").arg(m_session->name()));
   });
-  connect(m_debugWorkspace, &DebugWorkspace::replayRequested, this,
+  connect(m_debugProgram, &DebugProgram::replayRequested, this,
           [this](const QString &absPath, const RecordingMetadata &meta) {
             StreamParams p;
             p.frequencyHz = meta.frequencyHz;
@@ -221,77 +233,25 @@ MainWindow::MainWindow() : m_capture(&m_spectrumProcessor) {
       m_transmit.updateWaveform(m_transmitPanel->waveformConfig());
   });
 
+  // Standalone Jam program.
+  connect(m_jamProgram, &JamProgram::startRequested, this,
+          &MainWindow::startJam);
+  connect(m_jamProgram, &JamProgram::stopRequested, this,
+          &MainWindow::stopJam);
+  connect(&m_jamProcessor, &SpectrumProcessor::spectrumReady, m_jamProgram,
+          &JamProgram::pushSpectrum);
+  connect(&m_jamMonitor, &CapturePipeline::errorOccurred, this,
+          [this](const QString &msg) { statusBar()->showMessage(msg); });
+
   m_deviceManager.rescan();
   updateCaptureRangeOverlay();
 }
 
 MainWindow::~MainWindow() {
   m_capture.stop();
+  m_jamMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
-}
-
-QWidget *MainWindow::buildFobPage() {
-  m_devicePanel = new DevicePanel(&m_deviceManager, this);
-  m_capturePanel = new CapturePanel(this);
-  m_transmitPanel = new TransmitPanel(this);
-  m_playbackPanel = new PlaybackPanel(&m_store, this);
-  m_sessionBrowser = new SessionBrowser(&m_store, this);
-
-  // One tab row for every control panel (top 3/4). The tabs are checkable
-  // buttons in a FlowLayout so they wrap to more rows instead of overflowing
-  // the 320px width; each drives the panel stack below.
-  m_panelStack = new QStackedWidget;
-  auto *tabBar = new QWidget;
-  tabBar->setObjectName(QStringLiteral("panelTabBar"));
-  // Full-width border under the wrapping tab row.
-  tabBar->setStyleSheet(
-      QStringLiteral("#panelTabBar { border-bottom: 1px solid #ffffff; }"));
-  auto *tabFlow = new FlowLayout(tabBar, 4, 4, 4);
-  auto *tabGroup = new QButtonGroup(this);
-  tabGroup->setExclusive(true);
-
-  const auto addTab = [&](const QString &title, QWidget *panel) {
-    // Wrap each panel so a tall control set scrolls rather than being squeezed
-    // into the short window.
-    auto *scroll = new QScrollArea;
-    scroll->setWidget(panel);
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    const int index = m_panelStack->addWidget(scroll);
-
-    auto *button = new QPushButton(title);
-    button->setCheckable(true);
-    button->setCursor(Qt::PointingHandCursor);
-    tabGroup->addButton(button, index);
-    tabFlow->addWidget(button);
-  };
-  addTab(tr("DEVICES"), m_devicePanel);
-  addTab(tr("CAPTURE"), m_capturePanel);
-  addTab(tr("CONCURRENT TX"), m_transmitPanel);
-  addTab(tr("SESSIONS"), m_sessionBrowser);
-  addTab(tr("PLAYBACK"), m_playbackPanel);
-  connect(tabGroup, &QButtonGroup::idClicked, m_panelStack,
-          &QStackedWidget::setCurrentIndex);
-  tabGroup->button(0)->setChecked(true);
-
-  // Bottom 1/4: a single visualization of the live capture, switchable
-  // between the waterfall and the FFT trace.
-  m_spectrumView = new SpectrumWidget(this);
-  m_waterfallView = new WaterfallWidget(this);
-  m_spectrumView->setMinimumHeight(60);
-  m_waterfallView->setMinimumHeight(60);
-  m_viz = new VizPanel(m_waterfallView, m_spectrumView);
-
-  auto *page = new QWidget;
-  auto *layout = new QVBoxLayout(page);
-  layout->setContentsMargins(0, 0, 0, 0);
-  layout->setSpacing(0);
-  layout->addWidget(tabBar);
-  layout->addWidget(m_panelStack, 1);
-  layout->addWidget(m_viz, 1);
-  return page;
 }
 
 QWidget *MainWindow::addProgram(const QString &name, const QString &iconPath,
@@ -351,7 +311,7 @@ void MainWindow::startCapture(bool record) {
     plan.minSegmentSamples = msToSamples(kAutoMinSegment);
   }
   if (record && !autoMode) {
-    plan.durationSec = m_capturePanel->durationSec();
+    // No duration input: record runs until the user hits STOP.
     plan.outputPath = ensureSession()->nextRecordingPath();
   }
 
@@ -551,6 +511,51 @@ void MainWindow::onTransmitToggled(bool enabled) {
   }
 }
 
+void MainWindow::startJam() {
+  const auto txInfo = m_devicePanel->selectedTx();
+  if (!txInfo) {
+    statusBar()->showMessage(tr("Select a transmitter first"));
+    m_jamProgram->setRunning(false);
+    return;
+  }
+  auto txDevice = m_deviceManager.open(*txInfo);
+  if (!txDevice) {
+    statusBar()->showMessage(tr("Cannot open %1").arg(txInfo->displayName()));
+    m_jamProgram->setRunning(false);
+    return;
+  }
+
+  const StreamParams params = m_jamProgram->streamParams();
+  if (!m_transmit.start(std::move(txDevice), params,
+                        m_jamProgram->waveformConfig())) {
+    m_jamProgram->setRunning(false);
+    return;
+  }
+
+  // Optionally monitor the channel on the receiver so the FFT/waterfall show
+  // the transmission live; the overlay stays even when no receiver is set.
+  if (const auto rxInfo = m_devicePanel->selectedRx()) {
+    if (auto rxDevice = m_deviceManager.open(*rxInfo)) {
+      CapturePipeline::Plan plan;
+      plan.params = params; // monitor only (no output path)
+      m_jamMonitor.start(std::move(rxDevice), plan);
+    }
+  }
+
+  m_jamActive = true;
+  m_jamProgram->setRunning(true);
+  statusBar()->showMessage(tr("Transmitting %1 MHz")
+                               .arg(params.frequencyHz / 1e6, 0, 'f', 3));
+}
+
+void MainWindow::stopJam() {
+  m_transmit.stop();
+  m_jamMonitor.stop();
+  m_jamActive = false;
+  m_jamProgram->setRunning(false);
+  statusBar()->showMessage(tr("TX stopped"));
+}
+
 void MainWindow::stopCapture() {
   // Clear the auto flag first so a segment finalized during stop is kept
   // but does not re-arm the state machine.
@@ -646,6 +651,7 @@ void MainWindow::startPlayback(const QString &absPath,
 void MainWindow::closeEvent(QCloseEvent *event) {
   // Fixed-size popout: no geometry/state to persist.
   m_capture.stop();
+  m_jamMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
   QMainWindow::closeEvent(event);

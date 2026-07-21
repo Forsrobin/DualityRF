@@ -1,4 +1,4 @@
-#include "ui/CapturePanel.h"
+#include "ui/panels/CapturePanel.h"
 
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -15,7 +15,6 @@ namespace {
 // Settings persisted across restarts, like the device selection.
 const auto kFrequencyKey = QStringLiteral("capture/frequencyMHz");
 const auto kPeakThresholdKey = QStringLiteral("capture/peakThresholdDb");
-const auto kDurationKey = QStringLiteral("capture/durationSec");
 const auto kCaptureRangeKey = QStringLiteral("capture/rangeKHz");
 const auto kHangTimeKey = QStringLiteral("capture/hangTimeMs");
 
@@ -27,7 +26,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     , m_sampleRate(new QDoubleSpinBox(this))
     , m_bandwidth(new QDoubleSpinBox(this))
     , m_gain(new QDoubleSpinBox(this))
-    , m_duration(new QDoubleSpinBox(this))
     , m_peakThreshold(new QDoubleSpinBox(this))
     , m_captureRange(new QDoubleSpinBox(this))
     , m_hangTime(new QDoubleSpinBox(this))
@@ -58,12 +56,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     m_gain->setDecimals(1);
     m_gain->setValue(32.0);
     m_gain->setSuffix(tr(" dB"));
-
-    m_duration->setRange(0.0, 3600.0);
-    m_duration->setDecimals(1);
-    m_duration->setValue(10.0);
-    m_duration->setSuffix(tr(" s"));
-    m_duration->setSpecialValueText(tr("until stop"));
 
     m_peakThreshold->setRange(-110.0, 0.0);
     m_peakThreshold->setDecimals(1);
@@ -117,7 +109,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     layout->addRow(tr("Sample rate"), m_sampleRate);
     layout->addRow(tr("Bandwidth"), m_bandwidth);
     layout->addRow(tr("RX gain"), m_gain);
-    layout->addRow(tr("Duration"), m_duration);
     layout->addRow(tr("Peak level"), m_peakThreshold);
     layout->addRow(tr("Capture range"), m_captureRange);
     layout->addRow(tr("Hang time"), m_hangTime);
@@ -149,8 +140,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     m_peakThreshold->setValue(
         settings.value(kPeakThresholdKey, m_peakThreshold->value())
             .toDouble());
-    m_duration->setValue(
-        settings.value(kDurationKey, m_duration->value()).toDouble());
     m_captureRange->setValue(
         settings.value(kCaptureRangeKey, m_captureRange->value()).toDouble());
     m_hangTime->setValue(
@@ -161,7 +150,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     };
     persist(m_frequency, kFrequencyKey);
     persist(m_peakThreshold, kPeakThresholdKey);
-    persist(m_duration, kDurationKey);
     persist(m_captureRange, kCaptureRangeKey);
     persist(m_hangTime, kHangTimeKey);
 
@@ -176,11 +164,6 @@ StreamParams CapturePanel::streamParams() const
     p.bandwidthHz = m_bandwidth->value() * 1e6;
     p.gainDb = m_gain->value();
     return p;
-}
-
-double CapturePanel::durationSec() const
-{
-    return m_duration->value();
 }
 
 QString CapturePanel::trigger() const

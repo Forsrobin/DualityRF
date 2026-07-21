@@ -1,4 +1,4 @@
-#include "ui/WaterfallWidget.h"
+#include "ui/widgets/WaterfallWidget.h"
 
 #include "ui/Theme.h"
 
