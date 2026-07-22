@@ -1,7 +1,6 @@
 #include "ui/programs/FobProgram.h"
 
 #include "ui/panels/CapturePanel.h"
-#include "ui/panels/DevicePanel.h"
 #include "ui/components/FlowLayout.h"
 #include "ui/panels/PlaybackPanel.h"
 #include "ui/panels/SessionBrowser.h"
@@ -18,10 +17,8 @@
 
 namespace duality {
 
-FobProgram::FobProgram(DeviceManager *deviceManager, SessionStore *store,
-                       QWidget *parent)
+FobProgram::FobProgram(SessionStore *store, QWidget *parent)
     : QWidget(parent)
-    , m_devicePanel(new DevicePanel(deviceManager, this))
     , m_capturePanel(new CapturePanel(this))
     , m_transmitPanel(new TransmitPanel(this))
     , m_playbackPanel(new PlaybackPanel(store, this))
@@ -58,7 +55,6 @@ FobProgram::FobProgram(DeviceManager *deviceManager, SessionStore *store,
         tabGroup->addButton(button, index);
         tabFlow->addWidget(button);
     };
-    addTab(tr("DEVICES"), m_devicePanel);
     addTab(tr("CAPTURE"), m_capturePanel);
     addTab(tr("CONCURRENT TX"), m_transmitPanel);
     addTab(tr("SESSIONS"), m_sessionBrowser);

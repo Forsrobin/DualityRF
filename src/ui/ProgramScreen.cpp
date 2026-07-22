@@ -1,5 +1,7 @@
 #include "ui/ProgramScreen.h"
 
+#include "ui/components/DeviceBadge.h"
+
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QToolButton>
@@ -44,10 +46,32 @@ ProgramScreen::ProgramScreen(const QString &title, QWidget *content,
     label->setStyleSheet(QStringLiteral("font-weight: bold;"));
     barRow->addWidget(label);
     barRow->addStretch(1);
+
+    // Selected device indicators on the right: red TX, blue RX. Tapping either
+    // opens the device selector; every program carries them so the current
+    // devices are always visible.
+    m_txBadge = new DeviceBadge(QStringLiteral("TX"), QStringLiteral("#c0392b"),
+                                bar);
+    m_rxBadge = new DeviceBadge(QStringLiteral("RX"), QStringLiteral("#2c6fbf"),
+                                bar);
+    connect(m_txBadge, &DeviceBadge::clicked, this, &ProgramScreen::txClicked);
+    connect(m_rxBadge, &DeviceBadge::clicked, this, &ProgramScreen::rxClicked);
+    barRow->addWidget(m_txBadge);
+    barRow->addWidget(m_rxBadge);
     root->addWidget(bar);
 
     content->setParent(this);
     root->addWidget(content, 1);
+}
+
+void ProgramScreen::setTxName(const QString &name)
+{
+    m_txBadge->setDeviceName(name);
+}
+
+void ProgramScreen::setRxName(const QString &name)
+{
+    m_rxBadge->setDeviceName(name);
 }
 
 } // namespace duality

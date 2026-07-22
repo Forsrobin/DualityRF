@@ -83,10 +83,23 @@ page.
 ### `ProgramScreen` (`ui/ProgramScreen.*`) — the back-bar wrapper
 
 Every program's content is wrapped in a `ProgramScreen`, which prepends a
-slim **30 px top bar** with a centered `‹` back arrow (fixed 38 × 24,
-13 px font) and the program title. Tapping the arrow emits `backRequested()`,
-which `MainWindow` routes back to the home page. Using one wrapper guarantees
-the back bar is identical height and style across every program.
+slim **30 px top bar**:
+
+```
+┌──────────────────────────────┐
+│ ‹  FOB        [TX HackRF][RX —]│  back arrow + title (left), device badges (right)
+├──────────────────────────────┤
+```
+
+- Left: a `‹` back arrow (fixed 38 × 24, 13 px font) and the program title.
+  Tapping the arrow emits `backRequested()`, which `MainWindow` routes back to
+  the home page. One wrapper guarantees the bar is identical across programs.
+- Right: two **`DeviceBadge`** chips — red **TX** and blue **RX**
+  (`ui/components/DeviceBadge.*`) — each showing the trimmed name of the
+  selected device (or `—`). Tapping a badge emits `txClicked()` / `rxClicked()`,
+  which opens the **Devicees** selector focused on that section. The badges
+  appear on every program so the current devices are always visible;
+  `MainWindow::refreshDeviceBadges()` mirrors the selection onto all of them.
 
 The status bar is only shown while a `ProgramScreen` is current (hidden on
 splash/home), handled in `MainWindow`'s `currentChanged` handler.
@@ -98,12 +111,13 @@ registered in `MainWindow` via `addProgram(name, iconPath, content)`, which
 wraps the content in a `ProgramScreen`, pushes it on the stack, and adds the
 home tile. Current programs:
 
-| Tile   | Class          | Icon                | Purpose |
-|--------|----------------|---------------------|---------|
-| FOB    | `FobProgram`   | `:/assets/fob.png`  | Capture / monitor / concurrent-TX / sessions / playback — the main workflow |
-| JAM    | `JamProgram`   | `:/assets/jam.png`  | Standalone transmitter for testing / jamming |
-| DEBUG  | `DebugProgram` | `:/assets/bug.png`  | Offline A/B analysis of recordings |
-| ABOUT  | `InfoProgram`  | `:/assets/info.png` | App info / version |
+| Tile     | Class            | Icon                    | Purpose |
+|----------|------------------|-------------------------|---------|
+| FOB      | `FobProgram`     | `:/assets/fob.png`      | Capture / monitor / concurrent-TX / sessions / playback — the main workflow |
+| DEVICEES | `DevicesProgram` | `:/assets/devicees.png` | App-wide RX/TX device selector (see below) |
+| JAM      | `JamProgram`     | `:/assets/jam.png`      | Standalone transmitter for testing / jamming |
+| DEBUG    | `DebugProgram`   | `:/assets/bug.png`      | Offline A/B analysis of recordings |
+| ABOUT    | `InfoProgram`    | `:/assets/info.png`     | App info / version |
 
 ### FOB program (`programs/FobProgram.*`)
 
@@ -115,10 +129,10 @@ waterfall/FFT visualization (`VizPanel`).
 ┌──────────────────────────────┐
 │ ‹  FOB                       │  back-bar
 ├──────────────────────────────┤
-│ [DEVICES][CAPTURE][TX]       │  FlowLayout tab row (wraps as needed)
+│ [CAPTURE][CONCURRENT TX]     │  FlowLayout tab row (wraps as needed)
 │ [SESSIONS][PLAYBACK]         │
 ├──────────────────────────────┤
-│  (selected panel)            │  QStackedWidget of the 5 panels
+│  (selected panel)            │  QStackedWidget of the 4 panels
 │  Freq / Rate / BW / Gain …   │
 ├──────────────────────────────┤
 │  [ WATERFALL | FFT ] toggle  │  VizPanel: one view at a time
@@ -127,15 +141,14 @@ waterfall/FFT visualization (`VizPanel`).
 ```
 
 `FobProgram` **owns** the panels and views; `MainWindow` reaches them through
-accessors (`devicePanel()`, `capturePanel()`, `transmitPanel()`,
-`playbackPanel()`, `sessionBrowser()`, `spectrumView()`, `waterfallView()`)
-to wire them to the pipelines. This alias-pointer pattern keeps all the
-capture/playback signal wiring in `MainWindow` unchanged while the widgets
-themselves live in the program.
+accessors (`capturePanel()`, `transmitPanel()`, `playbackPanel()`,
+`sessionBrowser()`, `spectrumView()`, `waterfallView()`) to wire them to the
+pipelines. This alias-pointer pattern keeps all the capture/playback signal
+wiring in `MainWindow` unchanged while the widgets themselves live in the
+program. Device selection is **not** here — it moved to the Devicees program.
 
 The FOB panels:
 
-- **Devices** (`DevicePanel`) — RX and TX device dropdowns + `RESCAN`.
 - **Capture** (`CapturePanel`) — frequency, sample rate, bandwidth, RX gain,
   trigger mode. `MONITOR` streams without writing; `RECORD` writes
   `recording_NNN.iq` into the current session. **Recording runs until you tap
@@ -146,6 +159,43 @@ The FOB panels:
 - **Sessions** (`SessionBrowser`) — browse sessions and their recordings.
 - **Playback** (`PlaybackPanel`) — replay a recording through a TX device:
   frequency, gain, sample rate, repeat, speed (0.25×–4×).
+
+### Devicees program (`programs/DevicesProgram.*`)
+
+The **app-wide device selector** and the single source of truth for the
+selected RX/TX devices — the pipelines read `selectedRx()` / `selectedTx()`
+from it, and every program's top-bar badges mirror its `selectionChanged()`.
+
+```
+┌──────────────────────────────┐
+│ ‹  DEVICEES        [TX][RX]   │
+├──────────────────────────────┤
+│ ▓█▓▒░   ░▒▓█▓  (Cylon sweep)  │  ScanIndicator — animated while scanning
+│ [   SCAN FOR DEVICES   ]      │
+├──────────────────────────────┤
+│ RECEIVER            (blue)    │
+│  ( ) (none)                   │  selectable rows, exclusive; selected row
+│  (•) HackRF One [duplex]      │  is inverted (white) via the theme
+│ TRANSMITTER         (red)     │
+│  (•) HackRF One [duplex]      │
+└──────────────────────────────┘
+```
+
+- Devices are shown as two **touch-friendly selectable lists** (RX and TX),
+  not dropdowns; a full-duplex device appears in both. Selection persists via
+  `QSettings` (`devices/rx`, `devices/tx`) and is restored after each scan.
+- **`ScanIndicator`** (`ui/components/ScanIndicator.*`) is a monochrome
+  "Cylon" sweep that animates during a scan for a bit of cool factor, and
+  settles to a dim static row when idle.
+- Opened either from its home tile or by tapping a top-bar badge (which scrolls
+  the matching section into view via `focusReceiver()` / `focusTransmitter()`).
+
+**History-aware back navigation:** unlike other programs (whose back arrow
+always returns home), Devicees returns to *whatever screen opened it*.
+`MainWindow::openDevices()` records the current stack index in
+`m_devicesReturnIndex`, and the Devicees back arrow returns there. So
+`home → FOB → (tap RX badge) → Devicees → back → FOB`, but
+`home → Devicees → back → home`.
 
 ### JAM program (`programs/JamProgram.*`)
 
@@ -204,6 +254,8 @@ Reusable pieces live under `src/ui/`:
 | `components/`  | `FlowLayout`     | Wrapping horizontal layout (the FOB tab row) |
 | `components/`  | `HazardButton`   | Yellow/black hazard-striped button; striped when checked, or always via `setAlwaysHazard(true)` |
 | `components/`  | `ToastManager`   | Transient status/error toasts |
+| `components/`  | `DeviceBadge`    | Clickable red-TX / blue-RX top-bar chip showing the trimmed device name |
+| `components/`  | `ScanIndicator`  | Animated "Cylon" sweep shown while scanning for devices |
 | `widgets/`     | `SpectrumWidget` | Live FFT plot: dB/freq axes, peak hold, zoom/pan, capture-range overlay band |
 | `widgets/`     | `WaterfallWidget`| Scrolling waterfall (circular `QImage`, newest row on top) |
 | `panels/`      | `VizPanel`       | Container that toggles between the spectrum and waterfall |
