@@ -12,7 +12,10 @@
         fft.cache              # cached average spectra (binary)
 ```
 
-The data root defaults to `~/DualityRF` and is configurable in the UI.
+The data root is `SessionStore::defaultDataRoot()` —
+`QStandardPaths::GenericDataLocation + "/duality-rf"`, i.e.
+`~/.local/share/duality-rf` on Linux (overridable by constructing
+`SessionStore` with an explicit root).
 
 ## IQ files (`recording_NNN.iq`)
 

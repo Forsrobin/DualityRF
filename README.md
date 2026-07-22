@@ -15,8 +15,9 @@ SoapySDR-compatible device (RTL-SDR, HackRF, ADALM-PLUTO, LimeSDR, BladeRF,
   transmit-capable or full duplex — no vendor-specific logic outside the
   adapter layer.
 - Recording stages with configurable frequency, sample rate, bandwidth,
-  gains, duration and trigger mode; monitor mode for tuning before
-  committing a recording.
+  gains and trigger mode; monitor mode for tuning before committing a
+  recording, which then runs until stopped. Auto-capture carves each in-band
+  transmission into its own trimmed file.
 - Live FFT spectrum (zoom, pan, peak hold) and scrolling waterfall,
   processed off the UI thread.
 - Optional concurrent transmission during capture: white/Gaussian noise,
@@ -26,12 +27,15 @@ SoapySDR-compatible device (RTL-SDR, HackRF, ADALM-PLUTO, LimeSDR, BladeRF,
   `fft.cache` of average spectra.
 - Playback of any recording through a selected transmitter with frequency,
   gain, rate, repeat and speed controls.
-- Debug workspace: A/B comparison of recordings with overlaid FFTs, offline
+- Standalone Jam program: a dedicated transmitter (preset frequencies,
+  waveform type, TX gain) with an always-on affected-bandwidth overlay and
+  simultaneous FFT + waterfall.
+- Debug program: A/B comparison of recordings with overlaid FFTs, offline
   waterfall, side-by-side metadata, occupied bandwidth (99 %), mean/peak
   power and peak offset measurements.
-- Monochrome, touch-friendly UI with dockable panels; below 960 px the
-  layout stacks vertically for small/portrait screens. Portable to
-  ARM/Raspberry Pi.
+- Monochrome, touch-friendly UI for a fixed 320×480 portrait display: a
+  home-grid launcher of modular programs (FOB / JAM / DEBUG / ABOUT), each
+  reachable via a slim back bar. Portable to ARM/Raspberry Pi.
 
 ## Getting started
 

@@ -7,10 +7,11 @@ class QLabel;
 
 namespace duality {
 
-// The launcher screen: a 3-column grid of program tiles (icon over label)
-// filling the window, with a slim footer showing the app version (left) and
-// the wall-clock time (right). Register programs with addProgram(); each tile
-// emits programActivated() with its registration index.
+// The launcher screen: a header band with the logo and "DualityRF" wordmark,
+// a 3-column grid of program tiles (icon over label) below it, and a slim
+// footer showing the app version (left) and the wall-clock time (right).
+// Register programs with addProgram(); each tile emits programActivated()
+// with its registration index.
 class HomePage : public QWidget {
     Q_OBJECT
 public:
@@ -30,6 +31,7 @@ private:
 
     static constexpr int kColumns = 3;
     static constexpr int kTileHeight = 64;
+    static constexpr int kHeaderHeight = 64;
     static constexpr int kFooterHeight = 32;
 };
 

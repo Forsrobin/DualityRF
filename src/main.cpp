@@ -20,6 +20,14 @@ int main(int argc, char *argv[])
     // The boot splash is now the first page of the window itself, so just show
     // the window; it reveals the home grid after a short delay.
     duality::MainWindow window;
-    window.show();
+
+    // --kiosk: for unattended appliance boots (e.g. the Pi autostart entry),
+    // stay above the desktop panel/notifications instead of windowed.
+    if (app.arguments().contains(QStringLiteral("--kiosk"))) {
+        window.setWindowFlag(Qt::WindowStaysOnTopHint, true);
+        window.showFullScreen();
+    } else {
+        window.show();
+    }
     return app.exec();
 }

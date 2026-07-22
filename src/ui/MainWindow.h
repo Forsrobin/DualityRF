@@ -9,6 +9,7 @@
 #include "storage/SessionStore.h"
 
 #include <QMainWindow>
+#include <QVector>
 
 #include <chrono>
 #include <memory>
@@ -19,11 +20,12 @@ namespace duality {
 
 class CapturePanel;
 class DebugProgram;
-class DevicePanel;
+class DevicesProgram;
 class FobProgram;
 class HomePage;
 class InfoProgram;
 class PlaybackPanel;
+class ProgramScreen;
 class SessionBrowser;
 class SplashPage;
 class SpectrumWidget;
@@ -33,8 +35,9 @@ class JamProgram;
 class WaterfallWidget;
 
 // Owns the application services (device manager, session store, pipelines)
-// and hosts the programs (FOB, TX, Debug, Info) on a home-grid launcher,
-// wiring their panels to the pipelines.
+// and hosts the programs (FOB, Devicees, Jam, Debug, About) on a home-grid
+// launcher, wiring their panels to the pipelines. The Devicees program is the
+// app-wide device selector; each program's top bar shows and links to it.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -55,8 +58,17 @@ private slots:
 private:
     // Registers a program: adds a tile to the home grid and pushes `content`
     // (wrapped in a back-bar) onto the stack. Returns the wrapped screen.
-    QWidget *addProgram(const QString &name, const QString &iconPath,
-                        QWidget *content);
+    ProgramScreen *addProgram(const QString &name, const QString &iconPath,
+                              QWidget *content);
+
+    // Which device section the Devicees program should reveal when opened.
+    enum class DeviceFocus { None, Rx, Tx };
+    // Switch to the Devicees program, remembering the current screen so its
+    // back arrow returns here. No-op if already on it.
+    void openDevices(DeviceFocus focus);
+    // Push the current RX/TX selection into every program's top-bar badges.
+    void refreshDeviceBadges();
+
     Session *ensureSession();
     void cacheRecordingSpectrum(const RecordingMetadata &meta);
     void updateCaptureRangeOverlay();
@@ -133,13 +145,18 @@ private:
     JamProgram *m_jamProgram;
     QWidget *m_jamScreen = nullptr;    // back-bar wrapper around the Jam program
     bool m_jamActive = false;   // Jam program is transmitting
+    // App-wide device selector; the pipelines read its selection.
+    DevicesProgram *m_devicesProgram;
+    int m_devicesIndex = -1;        // stack index of the Devicees screen
+    int m_devicesReturnIndex = 0;   // where its back arrow returns to
+    // Every program's back-bar, so device badges can be refreshed in one pass.
+    QVector<ProgramScreen *> m_programScreens;
     ToastManager *m_toasts;
 
     static constexpr int kWindowWidth = 320;
     static constexpr int kWindowHeight = 480;
 
     // FOB panels — owned by m_fobProgram, aliased here for pipeline wiring.
-    DevicePanel *m_devicePanel;
     CapturePanel *m_capturePanel;
     TransmitPanel *m_transmitPanel;
     PlaybackPanel *m_playbackPanel;

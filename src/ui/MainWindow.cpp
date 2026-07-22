@@ -3,7 +3,6 @@
 #include "dsp/SpectrumAccumulator.h"
 #include "storage/IqFileReader.h"
 #include "ui/panels/CapturePanel.h"
-#include "ui/panels/DevicePanel.h"
 #include "ui/HomePage.h"
 #include "ui/panels/PlaybackPanel.h"
 #include "ui/ProgramScreen.h"
@@ -15,6 +14,7 @@
 #include "ui/panels/TransmitPanel.h"
 #include "ui/widgets/WaterfallWidget.h"
 #include "ui/programs/DebugProgram.h"
+#include "ui/programs/DevicesProgram.h"
 #include "ui/programs/FobProgram.h"
 #include "ui/programs/InfoProgram.h"
 #include "ui/programs/JamProgram.h"
@@ -64,14 +64,34 @@ MainWindow::MainWindow()
 
   m_home = new HomePage(this);
   m_stack->addWidget(m_home);
-  connect(m_home, &HomePage::programActivated, this,
-          [this](int index) { m_stack->setCurrentIndex(index + 1); });
+  connect(m_home, &HomePage::programActivated, this, [this](int index) {
+    const int target = index + 1; // stack index (home is 0)
+    // The device selector uses history-aware navigation; everything else
+    // just switches straight to its screen.
+    if (target == m_devicesIndex)
+      openDevices(DeviceFocus::None);
+    else
+      m_stack->setCurrentIndex(target);
+  });
 
-  // Register programs — add a line here to add a new screen. The FOB program
-  // must be built before the panel signals are wired below (it owns them).
-  m_fobProgram = new FobProgram(&m_deviceManager, &m_store, this);
+  // App-wide device selector; the pipelines read its selection and every
+  // program's top bar mirrors it.
+  m_devicesProgram = new DevicesProgram(&m_deviceManager, this);
+
+  // Register programs — add a line here to add a new screen. Devicees comes
+  // first so device selection is the front tile on the home grid.
+  ProgramScreen *devicesScreen = addProgram(
+      tr("DEVICEES"), QStringLiteral(":/assets/devicees.png"), m_devicesProgram);
+  m_devicesIndex = m_stack->indexOf(devicesScreen);
+  // Override the default back (home): return to whichever screen opened it.
+  disconnect(devicesScreen, &ProgramScreen::backRequested, nullptr, nullptr);
+  connect(devicesScreen, &ProgramScreen::backRequested, this,
+          [this] { m_stack->setCurrentIndex(m_devicesReturnIndex); });
+
+  // The FOB program must be built before the panel signals are wired below
+  // (it owns them).
+  m_fobProgram = new FobProgram(&m_store, this);
   // Keep alias pointers so the rest of the wiring reads the panels directly.
-  m_devicePanel = m_fobProgram->devicePanel();
   m_capturePanel = m_fobProgram->capturePanel();
   m_transmitPanel = m_fobProgram->transmitPanel();
   m_playbackPanel = m_fobProgram->playbackPanel();
@@ -86,6 +106,11 @@ MainWindow::MainWindow()
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugProgram);
   addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
+
+  // Keep the top-bar device badges in sync with the selector.
+  connect(m_devicesProgram, &DevicesProgram::selectionChanged, this,
+          &MainWindow::refreshDeviceBadges);
+  refreshDeviceBadges();
 
   // Only program screens carry a status bar; the home grid has its own footer
   // and the splash is chrome-free. Refresh debug sessions when it opens.
@@ -254,14 +279,43 @@ MainWindow::~MainWindow() {
   m_playback.stop();
 }
 
-QWidget *MainWindow::addProgram(const QString &name, const QString &iconPath,
-                                QWidget *content) {
+ProgramScreen *MainWindow::addProgram(const QString &name,
+                                      const QString &iconPath,
+                                      QWidget *content) {
   auto *screen = new ProgramScreen(name, content, this);
   connect(screen, &ProgramScreen::backRequested, this,
           [this] { m_stack->setCurrentIndex(0); });
+  // Tapping either device badge opens the selector, focused on that section.
+  connect(screen, &ProgramScreen::txClicked, this,
+          [this] { openDevices(DeviceFocus::Tx); });
+  connect(screen, &ProgramScreen::rxClicked, this,
+          [this] { openDevices(DeviceFocus::Rx); });
+  m_programScreens.push_back(screen);
   m_stack->addWidget(screen);
   m_home->addProgram(name, iconPath);
   return screen;
+}
+
+void MainWindow::openDevices(DeviceFocus focus) {
+  if (m_stack->currentIndex() == m_devicesIndex)
+    return; // already selecting devices
+  m_devicesReturnIndex = m_stack->currentIndex();
+  if (focus == DeviceFocus::Rx)
+    m_devicesProgram->focusReceiver();
+  else if (focus == DeviceFocus::Tx)
+    m_devicesProgram->focusTransmitter();
+  m_stack->setCurrentIndex(m_devicesIndex);
+}
+
+void MainWindow::refreshDeviceBadges() {
+  const auto rx = m_devicesProgram->selectedRx();
+  const auto tx = m_devicesProgram->selectedTx();
+  const QString rxName = rx ? rx->displayName() : QString();
+  const QString txName = tx ? tx->displayName() : QString();
+  for (ProgramScreen *screen : m_programScreens) {
+    screen->setRxName(rxName);
+    screen->setTxName(txName);
+  }
 }
 
 Session *MainWindow::ensureSession() {
@@ -273,7 +327,7 @@ Session *MainWindow::ensureSession() {
 }
 
 void MainWindow::startCapture(bool record) {
-  const auto rxInfo = m_devicePanel->selectedRx();
+  const auto rxInfo = m_devicesProgram->selectedRx();
   if (!rxInfo) {
     statusBar()->showMessage(tr("Select a receiver first"));
     return;
@@ -480,7 +534,7 @@ void MainWindow::rearmAuto() {
 }
 
 bool MainWindow::startConcurrentTx(const StreamParams &captureParams) {
-  const auto txInfo = m_devicePanel->selectedTx();
+  const auto txInfo = m_devicesProgram->selectedTx();
   if (!txInfo) {
     statusBar()->showMessage(
         tr("Concurrent TX enabled but no transmitter selected"));
@@ -512,7 +566,7 @@ void MainWindow::onTransmitToggled(bool enabled) {
 }
 
 void MainWindow::startJam() {
-  const auto txInfo = m_devicePanel->selectedTx();
+  const auto txInfo = m_devicesProgram->selectedTx();
   if (!txInfo) {
     statusBar()->showMessage(tr("Select a transmitter first"));
     m_jamProgram->setRunning(false);
@@ -534,7 +588,7 @@ void MainWindow::startJam() {
 
   // Optionally monitor the channel on the receiver so the FFT/waterfall show
   // the transmission live; the overlay stays even when no receiver is set.
-  if (const auto rxInfo = m_devicePanel->selectedRx()) {
+  if (const auto rxInfo = m_devicesProgram->selectedRx()) {
     if (auto rxDevice = m_deviceManager.open(*rxInfo)) {
       CapturePipeline::Plan plan;
       plan.params = params; // monitor only (no output path)
@@ -626,7 +680,7 @@ void MainWindow::cacheRecordingSpectrum(const RecordingMetadata &meta) {
 void MainWindow::startPlayback(const QString &absPath,
                                const StreamParams &params, SampleFormat format,
                                double speed, bool repeat) {
-  const auto txInfo = m_devicePanel->selectedTx();
+  const auto txInfo = m_devicesProgram->selectedTx();
   if (!txInfo) {
     statusBar()->showMessage(tr("Select a transmitter first"));
     return;

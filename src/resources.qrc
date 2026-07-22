@@ -5,11 +5,18 @@
         <file alias="bug.png">../assets/bug.png</file>
         <file alias="info.png">../assets/info.png</file>
         <file alias="jam.png">../assets/jam.png</file>
+        <file alias="devicees.png">../assets/devicees.png</file>
         <file alias="arrow-up-white.png">../assets/arrow-up-white.png</file>
         <file alias="arrow-up-black.png">../assets/arrow-up-black.png</file>
         <file alias="arrow-up-gray.png">../assets/arrow-up-gray.png</file>
         <file alias="arrow-down-white.png">../assets/arrow-down-white.png</file>
         <file alias="arrow-down-black.png">../assets/arrow-down-black.png</file>
         <file alias="arrow-down-gray.png">../assets/arrow-down-gray.png</file>
+    </qresource>
+    <qresource prefix="/fonts">
+        <file alias="PixelifySans-Regular.ttf">../assets/fonts/Pixelify_Sans/PixelifySans-Regular.ttf</file>
+        <file alias="PixelifySans-Medium.ttf">../assets/fonts/Pixelify_Sans/PixelifySans-Medium.ttf</file>
+        <file alias="PixelifySans-SemiBold.ttf">../assets/fonts/Pixelify_Sans/PixelifySans-SemiBold.ttf</file>
+        <file alias="PixelifySans-Bold.ttf">../assets/fonts/Pixelify_Sans/PixelifySans-Bold.ttf</file>
     </qresource>
 </RCC>
