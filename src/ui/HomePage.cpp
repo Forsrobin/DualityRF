@@ -7,6 +7,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QPixmap>
 #include <QSize>
 #include <QSizePolicy>
 #include <QTimer>
@@ -23,6 +24,32 @@ HomePage::HomePage(QWidget *parent)
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
+
+    // Header band: logo + bold wordmark across the top, above the tiles.
+    auto *header = new QWidget(this);
+    header->setObjectName(QStringLiteral("homeHeader"));
+    header->setFixedHeight(kHeaderHeight);
+    header->setStyleSheet(
+        QStringLiteral("#homeHeader { border-bottom: 1px solid #ffffff; }"));
+    auto *headerRow = new QHBoxLayout(header);
+    headerRow->setContentsMargins(0, 0, 0, 0);
+    headerRow->setSpacing(10);
+    headerRow->addStretch(1);
+
+    const QString headerLabelStyle =
+        QStringLiteral("background: transparent; border: none;");
+    auto *logo = new QLabel(header);
+    logo->setPixmap(QPixmap(QStringLiteral(":/assets/logo.png"))
+                        .scaledToHeight(44, Qt::SmoothTransformation));
+    logo->setStyleSheet(headerLabelStyle);
+    headerRow->addWidget(logo);
+
+    auto *title = new QLabel(QStringLiteral("DualityRF"), header);
+    title->setStyleSheet(headerLabelStyle +
+                         QStringLiteral(" font-weight: bold; font-size: 22px;"));
+    headerRow->addWidget(title);
+    headerRow->addStretch(1);
+    root->addWidget(header);
 
     // Program grid: fixed-height tiles pinned to the top, three per row.
     m_grid->setContentsMargins(0, 0, 0, 0);

@@ -1,12 +1,32 @@
 #include "ui/Theme.h"
 
 #include <QApplication>
+#include <QFont>
+#include <QFontDatabase>
 
 #include <algorithm>
 
 namespace duality::Theme {
 
 namespace {
+
+// The application-wide type family, bundled in resources.qrc.
+const char *const kFontFamily = "Pixelify Sans";
+
+// Load the Pixelify Sans weights from resources once, so every widget (and the
+// QPainter-drawn plot text) can use them.
+void loadFonts()
+{
+    static bool loaded = false;
+    if (loaded)
+        return;
+    loaded = true;
+    for (const char *weight : {"Regular", "Medium", "SemiBold", "Bold"}) {
+        QFontDatabase::addApplicationFont(
+            QStringLiteral(":/fonts/PixelifySans-%1.ttf")
+                .arg(QLatin1String(weight)));
+    }
+}
 
 // The full-size touchscreen style: generous padding and large hit targets,
 // tuned for the desktop / large-panel layout.
@@ -17,6 +37,7 @@ QString wideStyleSheet()
     background-color: #000000;
     color: #ffffff;
     border-radius: 0px;
+    font-family: "Pixelify Sans";
     selection-background-color: #ffffff;
     selection-color: #000000;
 }
@@ -214,6 +235,7 @@ QString compactStyleSheet()
     color: #ffffff;
     border-radius: 0px;
     font-size: 11px;
+    font-family: "Pixelify Sans";
     selection-background-color: #ffffff;
     selection-color: #000000;
 }
@@ -418,6 +440,13 @@ QTabBar::tab:selected {
 
 void apply(QApplication &app, bool compact)
 {
+    loadFonts();
+    // Set the default font so QPainter-drawn text (spectrum/waterfall axes)
+    // uses Pixelify Sans too; the stylesheet's font-family covers styled
+    // widgets.
+    QFont appFont{QString::fromLatin1(kFontFamily)};
+    appFont.setStyleStrategy(QFont::PreferAntialias);
+    app.setFont(appFont);
     app.setStyleSheet(compact ? compactStyleSheet() : wideStyleSheet());
 }
 

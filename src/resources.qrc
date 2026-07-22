@@ -12,4 +12,10 @@
         <file alias="arrow-down-black.png">../assets/arrow-down-black.png</file>
         <file alias="arrow-down-gray.png">../assets/arrow-down-gray.png</file>
     </qresource>
+    <qresource prefix="/fonts">
+        <file alias="PixelifySans-Regular.ttf">../assets/fonts/Pixelify_Sans/PixelifySans-Regular.ttf</file>
+        <file alias="PixelifySans-Medium.ttf">../assets/fonts/Pixelify_Sans/PixelifySans-Medium.ttf</file>
+        <file alias="PixelifySans-SemiBold.ttf">../assets/fonts/Pixelify_Sans/PixelifySans-SemiBold.ttf</file>
+        <file alias="PixelifySans-Bold.ttf">../assets/fonts/Pixelify_Sans/PixelifySans-Bold.ttf</file>
+    </qresource>
 </RCC>
