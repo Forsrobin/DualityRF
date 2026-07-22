@@ -1,88 +1,227 @@
 # DualityRF — UI Design
 
+## Target device & window
+
+The UI is built for a **fixed 320 × 480 portrait touchscreen** (Raspberry Pi
+class, Wayland/Hyprland). The main window is a fixed-size `QMainWindow`
+(`kWindowWidth = 320`, `kWindowHeight = 480` in `MainWindow`); there is no
+resizing or dock rearranging. Everything is designed for finger taps, not a
+mouse.
+
 ## Style
 
 Strict monochrome: black background (`#000000`), white foreground
-(`#FFFFFF`), square corners, 1 px white borders, no gradients, no icons in
-controls, generous hit targets (min 40 px) for touch. The only color in the
-application is inside the spectrum/waterfall plot areas (intensity
-colormap). Implemented as one application-wide QSS in `ui/Theme.cpp`.
+(`#FFFFFF`), square corners, 1 px white borders, no gradients, generous hit
+targets for touch. The only color in the application is inside the
+spectrum/waterfall plot areas (intensity colormap) and the hazard-striped
+START buttons. Implemented as one application-wide QSS in `ui/Theme.cpp`
+(`Theme::apply`).
 
-## Main window (dockable layout)
+Two intentional exceptions to the pure-monochrome rule:
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ DUALITY RF          [ CAPTURE ] [ PLAYBACK ] [ DEBUG ]               │
-├──────────────┬───────────────────────────────────────────────────────┤
-│ DEVICES      │  SPECTRUM (FFT)                                       │
-│ ┌──────────┐ │  ┌─────────────────────────────────────────────────┐  │
-│ │RX ▾      │ │  │        ╱╲      dB axis, peak hold,              │  │
-│ │HackRF One│ │  │  ──╱╲─╱  ╲──╱╲─── freq axis, zoom (wheel/drag)  │  │
-│ │TX ▾      │ │  └─────────────────────────────────────────────────┘  │
-│ │(none)    │ │  WATERFALL                                            │
-│ │[RESCAN]  │ │  ┌─────────────────────────────────────────────────┐  │
-│ └──────────┘ │  │ ▒▒▓▓██▓▓▒▒  scrolling history, shared freq axis │  │
-│ CAPTURE      │  │ ▒▒▒▓██▓▒▒▒                                      │  │
-│ ┌──────────┐ │  └─────────────────────────────────────────────────┘  │
-│ │Freq [__] │ ├───────────────────────────────────────────────────────┤
-│ │Rate [__] │ │ SESSIONS                                              │
-│ │BW   [__] │ │ Session_2026-07-15_14-30-05                           │
-│ │Gain [==] │ │   ├ recording_001.iq   433.8 MHz  1 MS/s  10 s        │
-│ │Dur  [__] │ │   └ recording_002.iq   ...                            │
-│ │[MONITOR] │ │ [OPEN] [PLAY] [COMPARE]                               │
-│ │[RECORD ] │ │                                                       │
-│ └──────────┘ │                                                       │
-└──────────────┴───────────────────────────────────────────────────────┘
-```
+- **Home tiles** are white background / `#808080` gray border / black text
+  (so the launcher reads as physical buttons).
+- **Home footer labels** (version + clock) are fully transparent (no border,
+  no background) so they sit cleanly over the footer's top border.
 
-Panels are `QDockWidget`s: Devices, Capture, Concurrent TX, Playback,
-Sessions — all dockable/floatable/closable; Spectrum + Waterfall form the
-central widget. Layout persists via `QMainWindow::saveState`.
+## Navigation model
 
-## Capture panel (recording stage)
-
-Receiver (from Devices panel selection), optional transmitter, frequency,
-sample rate, bandwidth, RX gain, TX gain (when concurrent TX enabled),
-duration (0 = until stopped), trigger mode (Manual / Auto on start).
-`MONITOR` streams without writing; `RECORD` arms the stage and writes
-`recording_NNN.iq` into the current session.
-
-## Concurrent TX panel
-
-Enable checkbox; generator: White noise / Gaussian noise / CW / Sine /
-IQ file; amplitude; frequency offset from the carrier (applies to every
-generator, e.g. 433.8 MHz + 100 kHz emits around 433.9 MHz); range
-(bandwidth) for the noise generators (0 = full band); TX gain. Runs while a
-capture stage — monitor or record — is active.
-
-## Playback panel
-
-Recording (from Sessions selection), output SDR, frequency (defaults to the
-recording's), gain, sample rate (defaults to recording's), repeat, speed
-(0.25×–4× where hardware allows). `TRANSMIT` / `STOP`.
-
-## Debug workspace
-
-Separate top-level view (toolbar toggle) for offline analysis:
+The app is a single `QStackedWidget` (`m_stack` in `MainWindow`). There is
+**no menu bar and no dock system** — navigation is splash → home → program →
+back to home.
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│ DEBUG   [OPEN SESSION]  A: recording_001  B: recording_002 [SWAP]    │
-├───────────────────────────────┬──────────────────────────────────────┤
-│ FFT OVERLAY  (A white, B gray)│ METADATA            A        B       │
-│  ┌─────────────────────────┐  │ frequency       433.8 MHz  433.8 MHz │
-│  │   ╱╲    ╱╲   zoom+pan   │  │ sample rate     1 MS/s     1 MS/s    │
-│  └─────────────────────────┘  │ duration        10.0 s     8.2 s     │
-│ WATERFALL (selected rec)      │ occupied BW(99%) 18.4 kHz  17.9 kHz  │
-│  ┌─────────────────────────┐  │ mean power     -48.2 dBFS -47.1 dBFS │
-│  │                         │  │ peak power     -21.0 dBFS -20.4 dBFS │
-│  └─────────────────────────┘  │ started         12:30:05   12:31:12  │
-│ [REPLAY A] [REPLAY B]         │ Δf at peak      +1.2 kHz             │
-└───────────────────────────────┴──────────────────────────────────────┘
+        ┌─────────────┐   1500 ms    ┌─────────────┐
+launch ▶│ SplashPage  │ ───────────▶ │  HomePage   │
+        │  (index 0)  │  singleShot  │  launcher   │
+        └─────────────┘              └──────┬──────┘
+                                      tap tile │  ▲ back arrow
+                                               ▼  │
+                                     ┌──────────────────────┐
+                                     │    ProgramScreen     │
+                                     │  ┌────────────────┐  │
+                                     │  │ ‹  TITLE  (bar)│  │ 30 px back-bar
+                                     │  ├────────────────┤  │
+                                     │  │  program body  │  │
+                                     │  └────────────────┘  │
+                                     └──────────────────────┘
 ```
 
-Capabilities: open any session; select recordings A/B; overlaid average
-FFTs with zoom; per-recording waterfall rendered from file; metadata
-side-by-side; measured values (occupied bandwidth 99 %, mean/peak power,
-peak frequency offset); replay either recording through the playback
-pipeline; timing info from metadata.
+### `SplashPage` (`ui/SplashPage.*`)
+
+The boot splash is the **first page of the window itself** (not a separate
+`QSplashScreen`): logo (200 px), tagline `SDR CAPTURE · ANALYSIS · REPLAY`,
+the app version, and "Starting up…", centered on black. `MainWindow` shows it
+first, then `QTimer::singleShot(kSplashMinimumMs = 1500)` switches to the home
+page.
+
+### `HomePage` (`ui/HomePage.*`) — the launcher
+
+```
+┌──────────────────────────────┐
+│ ┌────────┐┌────────┐┌────────┐│  3-column QGridLayout of tiles.
+│ │  [icon]││  [icon]││  [icon]││  Each tile = QToolButton, 64 px tall,
+│ │  FOB   ││  JAM   ││ DEBUG  ││  ToolButtonTextUnderIcon (icon over label).
+│ └────────┘└────────┘└────────┘│
+│ ┌────────┐                    │
+│ │  [icon]│                    │
+│ │ ABOUT  │                    │
+│ └────────┘                    │
+│              ...              │
+├──────────────────────────────┤  32 px footer, top border only.
+│ v2.0.2              14:30:05  │  version (left) · live HH:MM:SS clock (right)
+└──────────────────────────────┘
+```
+
+- `addProgram(name, iconPath)` appends one tile; the index passed to the
+  `programActivated(int)` signal matches the registration order (0, 1, 2…).
+- The clock label ticks every 1000 ms via a `QTimer`
+  (`QTime::currentTime().toString("HH:mm:ss")`).
+- Adding a new program to the launcher is a **one-line** call in
+  `MainWindow` — see "Adding a program" below.
+
+### `ProgramScreen` (`ui/ProgramScreen.*`) — the back-bar wrapper
+
+Every program's content is wrapped in a `ProgramScreen`, which prepends a
+slim **30 px top bar** with a centered `‹` back arrow (fixed 38 × 24,
+13 px font) and the program title. Tapping the arrow emits `backRequested()`,
+which `MainWindow` routes back to the home page. Using one wrapper guarantees
+the back bar is identical height and style across every program.
+
+The status bar is only shown while a `ProgramScreen` is current (hidden on
+splash/home), handled in `MainWindow`'s `currentChanged` handler.
+
+## Programs
+
+Programs live in `src/ui/programs/` as `{Name}Program.{h,cpp}` and are
+registered in `MainWindow` via `addProgram(name, iconPath, content)`, which
+wraps the content in a `ProgramScreen`, pushes it on the stack, and adds the
+home tile. Current programs:
+
+| Tile   | Class          | Icon                | Purpose |
+|--------|----------------|---------------------|---------|
+| FOB    | `FobProgram`   | `:/assets/fob.png`  | Capture / monitor / concurrent-TX / sessions / playback — the main workflow |
+| JAM    | `JamProgram`   | `:/assets/jam.png`  | Standalone transmitter for testing / jamming |
+| DEBUG  | `DebugProgram` | `:/assets/bug.png`  | Offline A/B analysis of recordings |
+| ABOUT  | `InfoProgram`  | `:/assets/info.png` | App info / version |
+
+### FOB program (`programs/FobProgram.*`)
+
+The main workflow. A wrapping **`FlowLayout` tab row** selects one control
+panel at a time from a `QStackedWidget`, shown above a switchable
+waterfall/FFT visualization (`VizPanel`).
+
+```
+┌──────────────────────────────┐
+│ ‹  FOB                       │  back-bar
+├──────────────────────────────┤
+│ [DEVICES][CAPTURE][TX]       │  FlowLayout tab row (wraps as needed)
+│ [SESSIONS][PLAYBACK]         │
+├──────────────────────────────┤
+│  (selected panel)            │  QStackedWidget of the 5 panels
+│  Freq / Rate / BW / Gain …   │
+├──────────────────────────────┤
+│  [ WATERFALL | FFT ] toggle  │  VizPanel: one view at a time
+│  ▒▒▓▓██▓▓▒▒ scrolling        │
+└──────────────────────────────┘
+```
+
+`FobProgram` **owns** the panels and views; `MainWindow` reaches them through
+accessors (`devicePanel()`, `capturePanel()`, `transmitPanel()`,
+`playbackPanel()`, `sessionBrowser()`, `spectrumView()`, `waterfallView()`)
+to wire them to the pipelines. This alias-pointer pattern keeps all the
+capture/playback signal wiring in `MainWindow` unchanged while the widgets
+themselves live in the program.
+
+The FOB panels:
+
+- **Devices** (`DevicePanel`) — RX and TX device dropdowns + `RESCAN`.
+- **Capture** (`CapturePanel`) — frequency, sample rate, bandwidth, RX gain,
+  trigger mode. `MONITOR` streams without writing; `RECORD` writes
+  `recording_NNN.iq` into the current session. **Recording runs until you tap
+  STOP — there is no duration field.** Also arms auto-capture / replay mode.
+- **Concurrent TX** (`TransmitPanel`) — enable a generated waveform (white /
+  Gaussian noise, CW, offset sine, IQ file) alongside a running capture:
+  amplitude, offset from carrier, noise bandwidth, TX gain.
+- **Sessions** (`SessionBrowser`) — browse sessions and their recordings.
+- **Playback** (`PlaybackPanel`) — replay a recording through a TX device:
+  frequency, gain, sample rate, repeat, speed (0.25×–4×).
+
+### JAM program (`programs/JamProgram.*`)
+
+A **standalone transmitter**, built to exercise the program modularity — it
+owns its controls and its own visualization and is not wired into the FOB
+capture flow.
+
+```
+┌──────────────────────────────┐
+│ ‹  JAM                       │
+├──────────────────────────────┤
+│ Preset ▾   Frequency [____]  │  preset dropdown fills frequency
+│ Sample rate [____]           │
+│ TX gain  [======]            │  gain only — no power-% control
+│ Type ▾  (WhiteNoise/Gauss/   │  matches FOB concurrent-TX types
+│          CW/Sine/IqFile)     │
+│ Offset [±kHz]  BW [kHz]      │
+│ File […] (IqFile only)       │
+├──────────────────────────────┤
+│ ▓▓▓ START (always hazard) ▓▓ │  pinned above the viz, always striped
+├──────────────────────────────┤
+│  FFT  + affected-band overlay│  BOTH shown at once (unlike FOB)
+│  ▒▒▓▓██▓▓▒▒ WATERFALL        │
+└──────────────────────────────┘
+```
+
+Distinct JAM behaviors:
+
+- The **affected bandwidth is always drawn** as an overlay band on the FFT
+  (`SpectrumWidget::setCaptureRange`), centered at `frequency + offset` with
+  width = configured bandwidth — even before transmitting — so the operator
+  always sees what will be jammed.
+- **Waterfall and FFT are shown simultaneously** at the bottom (the FOB
+  toggles between them; JAM stacks both).
+- The **START button is permanently hazard-striped**
+  (`HazardButton::setAlwaysHazard(true)`), pinned directly above the viz.
+- When a receiver is selected, `MainWindow::startJam()` opens the TX device
+  and an optional RX monitor (`m_jamMonitor` → `m_jamProcessor` →
+  `JamProgram::pushSpectrum`) so the transmission is visualized live. Leaving
+  the JAM screen stops it (`currentChanged` handler).
+
+### DEBUG program (`programs/DebugProgram.*`)
+
+Offline A/B analysis of recordings: open any session, pick recordings A/B,
+overlaid average FFTs (A white, B gray) with zoom, per-recording waterfall
+rendered from file, side-by-side metadata, and measured values (occupied
+bandwidth 99 %, mean/peak power, peak frequency offset). Refreshed when its
+screen becomes current.
+
+## Shared UI building blocks
+
+Reusable pieces live under `src/ui/`:
+
+| Location       | Piece            | Role |
+|----------------|------------------|------|
+| `components/`  | `FlowLayout`     | Wrapping horizontal layout (the FOB tab row) |
+| `components/`  | `HazardButton`   | Yellow/black hazard-striped button; striped when checked, or always via `setAlwaysHazard(true)` |
+| `components/`  | `ToastManager`   | Transient status/error toasts |
+| `widgets/`     | `SpectrumWidget` | Live FFT plot: dB/freq axes, peak hold, zoom/pan, capture-range overlay band |
+| `widgets/`     | `WaterfallWidget`| Scrolling waterfall (circular `QImage`, newest row on top) |
+| `panels/`      | `VizPanel`       | Container that toggles between the spectrum and waterfall |
+| ui root       | `Theme`          | The single application-wide QSS + palette |
+
+> **Portability note:** `WaterfallWidget` uses a `QT_VERSION`-guarded
+> `flippedVertical()` helper — `QImage::flipped()` is Qt 6.9+, so it falls
+> back to `mirrored(false, true)` on the Qt 6.4 shipped by the CI runners
+> (Ubuntu 24.04). Keep new UI code within the Qt 6.4 API or guard it likewise.
+
+## Adding a program
+
+The launcher is modular by design. To add a program:
+
+1. Create `src/ui/programs/MyProgram.{h,cpp}` (a `QWidget`), and add the two
+   files to `src/ui/CMakeLists.txt`.
+2. Add its icon to `assets/` and register it in `src/resources.qrc`.
+3. In `MainWindow`, one call: `addProgram(tr("MYPROG"), ":/assets/myprog.png",
+   new MyProgram(this));` — this adds the home tile **and** the back-barred
+   stack page. If the program needs start/stop-on-navigation behavior, hook it
+   in the `currentChanged` handler like JAM does.

@@ -30,7 +30,8 @@ all data lives in local session directories.
                                │
                 ┌──────────────▼──────────────┐
                 │          duality_ui         │   Qt Widgets
-                │  MainWindow, panels, views  │
+                │ launcher, programs, panels, │
+                │        widgets, views       │
                 └───┬──────────┬──────────┬───┘
                     │          │          │
         ┌───────────▼──┐  ┌────▼─────┐  ┌─▼──────────────┐
@@ -110,7 +111,8 @@ classDiagram
     }
 
     class DeviceManager {
-        +discover() vector~DeviceInfo~
+        +rescan()  // async, emits devicesChanged
+        +devices() vector~DeviceInfo~
         +open(DeviceInfo) shared_ptr~ISDRDevice~
     }
 
@@ -125,7 +127,8 @@ classDiagram
     DeviceManager ..> DeviceInfo
 ```
 
-- **Classification** happens in `DeviceManager::discover()`: a device with
+- **Classification** happens during `DeviceManager::rescan()` (on a worker
+  thread; results arrive via `devicesChanged()`): a device with
   ≥1 RX channel is receive-capable, ≥1 TX channel transmit-capable, both →
   full duplex. No driver names are ever tested outside the adapter.
 - `StreamParams` (core) carries frequency, sample rate, bandwidth and gain —
@@ -157,18 +160,38 @@ IReceiver::read()                     UI thread
 ## Recording pipeline
 
 ```
-CapturePipeline::start(receiver, StreamParams, RecordingPlan)
+CapturePipeline::start(receiver, StreamParams, Plan)
   RX thread loop:
       read chunk ──► ring buffer (live spectrum)
                  └─► IqFileWriter (cs16, buffered)   [if recording]
-  on duration reached / manual stop:
+  on manual stop (Plan.durationSec = 0 ⇒ run until stopped):
       writer.finalize() → RecordingMetadata → Session::addRecording()
       → average spectrum appended to fft.cache
 ```
 
 A capture can run in *monitor* mode (no file) for tuning before committing a
-recording stage. Optional concurrent transmission runs an independent
+recording stage. Recordings run until the user taps STOP — the UI no longer
+exposes a duration (the `Plan.durationSec` field remains, defaulting to 0 =
+until stop). Optional concurrent transmission runs an independent
 `TransmitPipeline` (waveform generator → ITransmitter) on its own thread.
+
+### Auto-capture & replay
+
+On top of a running monitor, `MainWindow` drives an **auto-capture** state
+machine (`WaitSignal → Recording → Finalizing`) that carves each in-band
+transmission into its own trimmed file:
+
+- `SpectrumProcessor` emits a pre-averaging `detectionRowReady` row; a
+  `PeakDetector` presence test (with on/off hysteresis) decides when a signal
+  starts and stops.
+- On start, `CapturePipeline::beginSegment()` buffers samples (plus a
+  pre-roll); on stop, `endSegment()` trims the segment to the capture range
+  with `BandTrimmer` (a windowed-sinc low-pass + decimation, sample rate
+  preserved so the file stays replayable) and writes one file — discarding
+  segments too short to keep.
+- **Replay mode** chains this with playback: after two captured segments it
+  drops the concurrent-TX noise, returns to a plain monitor, and replays the
+  first captured signal through the transmitter.
 
 ## Playback pipeline
 
@@ -193,22 +216,45 @@ See [STORAGE.md](STORAGE.md).
 
 ## UI
 
-See [UI.md](UI.md).
+See [UI.md](UI.md) for the full design. In brief: the UI is a **home-grid
+launcher** (`HomePage`) of program tiles rather than a dock/menu layout. A
+boot `SplashPage`, the home grid, and each program are pages of one
+`QStackedWidget` in `MainWindow`; a `ProgramScreen` wraps every program with a
+slim back-bar. `MainWindow` owns the application services (device manager,
+session store, pipelines) and wires them to the program panels.
+
+`src/ui/` is organized by role so the layers stay discoverable:
+
+```
+src/ui/               Theme, MainWindow, HomePage, SplashPage, ProgramScreen (app + screens)
+src/ui/components/     FlowLayout, HazardButton, ToastManager (reusable widgets)
+src/ui/widgets/        SpectrumWidget, WaterfallWidget (visualizations)
+src/ui/panels/         DevicePanel, CapturePanel, TransmitPanel, PlaybackPanel,
+                       SessionBrowser, VizPanel (FOB control panels)
+src/ui/programs/       FobProgram, JamProgram, DebugProgram, InfoProgram
+```
+
+Programs are modular: a new one is a `QWidget` in `programs/` registered with a
+single `MainWindow::addProgram(name, icon, widget)` call (adds the home tile
+and the back-barred stack page).
 
 ## CMake structure
 
 ```
 CMakeLists.txt              project, C++20, find_package(Qt6/SoapySDR/FFTW)
 src/CMakeLists.txt          adds module subdirectories + app target
-src/core/CMakeLists.txt     duality_core     (STATIC)
+src/core/CMakeLists.txt     duality_core     (INTERFACE — header only)
 src/sdr/CMakeLists.txt      duality_sdr      (STATIC)
 src/dsp/CMakeLists.txt      duality_dsp      (STATIC)
 src/storage/CMakeLists.txt  duality_storage  (STATIC)
 src/pipeline/CMakeLists.txt duality_pipeline (STATIC)
-src/ui/CMakeLists.txt       duality_ui       (STATIC)
+src/ui/CMakeLists.txt       duality_ui       (STATIC, grouped by components/widgets/panels/programs)
 ```
 
 Each target uses `target_link_libraries` with visibility keywords and
 `target_include_directories(<t> PUBLIC src/)` so includes are written as
-`#include "sdr/IReceiver.h"` — the include path encodes the module.
+`#include "sdr/IReceiver.h"` — the include path encodes the module (UI
+includes carry the subfolder, e.g. `#include "ui/panels/CapturePanel.h"`).
+`duality_core` also configures `Version.h.in` → `Version.h` from the CMake
+project version, the single source of truth for the app version.
 `CMakePresets.json` keeps the existing `debug`/`release` Ninja presets.
