@@ -113,4 +113,22 @@ void HomePage::addProgram(const QString &name, const QString &iconPath)
     m_grid->addWidget(tile, index / kColumns, index % kColumns);
 }
 
+void HomePage::addExitTile()
+{
+    auto *tile = new QToolButton(this);
+    tile->setText(QStringLiteral("EXIT"));
+    tile->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    tile->setCursor(Qt::PointingHandCursor);
+    tile->setFixedHeight(kTileHeight);
+    tile->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    tile->setStyleSheet(QStringLiteral(
+        "QToolButton { background: #cc0000; color: #ffffff;"
+        " border: 1px solid #990000; font-weight: bold; }"
+        "QToolButton:pressed { background: #990000; }"));
+
+    connect(tile, &QToolButton::clicked, this, &HomePage::exitRequested);
+    m_grid->addWidget(tile, m_count / kColumns, m_count % kColumns);
+    ++m_count;
+}
+
 } // namespace duality

@@ -20,9 +20,11 @@ public:
     // Append a program tile. The index passed to programActivated() matches the
     // order of these calls (0, 1, 2, ...).
     void addProgram(const QString &name, const QString &iconPath);
+    void addExitTile();
 
 signals:
     void programActivated(int index);
+    void exitRequested();
 
 private:
     QGridLayout *m_grid;

@@ -31,13 +31,12 @@ ProgramScreen::ProgramScreen(const QString &title, QWidget *content,
     barRow->setSpacing(6);
 
     auto *back = new QToolButton(bar);
-    back->setText(QStringLiteral("‹"));
+    back->setText(QStringLiteral("‹  Back"));
     back->setCursor(Qt::PointingHandCursor);
     back->setToolTip(tr("Back to home"));
-    // Square button with no padding so the glyph centres both ways.
-    back->setFixedSize(38, 24);
+    back->setFixedHeight(24);
     back->setStyleSheet(QStringLiteral(
-        "QToolButton { padding: 0px; font-size: 13px;"
+        "QToolButton { padding: 0 12px; font-size: 13px;"
         " min-width: 0px; min-height: 0px; }"));
     connect(back, &QToolButton::clicked, this, &ProgramScreen::backRequested);
     barRow->addWidget(back);

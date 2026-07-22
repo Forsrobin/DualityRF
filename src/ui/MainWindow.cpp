@@ -64,6 +64,7 @@ MainWindow::MainWindow()
 
   m_home = new HomePage(this);
   m_stack->addWidget(m_home);
+  connect(m_home, &HomePage::exitRequested, qApp, &QApplication::quit);
   connect(m_home, &HomePage::programActivated, this, [this](int index) {
     const int target = index + 1; // stack index (home is 0)
     // The device selector uses history-aware navigation; everything else
@@ -106,6 +107,7 @@ MainWindow::MainWindow()
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugProgram);
   addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
+  m_home->addExitTile();
 
   // Keep the top-bar device badges in sync with the selector.
   connect(m_devicesProgram, &DevicesProgram::selectionChanged, this,
