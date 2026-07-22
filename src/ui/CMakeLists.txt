@@ -18,6 +18,10 @@ add_library(duality_ui STATIC
     components/HazardButton.cpp
     components/ToastManager.h
     components/ToastManager.cpp
+    components/DeviceBadge.h
+    components/DeviceBadge.cpp
+    components/ScanIndicator.h
+    components/ScanIndicator.cpp
 
     # Visualization widgets
     widgets/SpectrumWidget.h
@@ -26,8 +30,6 @@ add_library(duality_ui STATIC
     widgets/WaterfallWidget.cpp
 
     # Control panels
-    panels/DevicePanel.h
-    panels/DevicePanel.cpp
     panels/CapturePanel.h
     panels/CapturePanel.cpp
     panels/TransmitPanel.h
@@ -42,6 +44,8 @@ add_library(duality_ui STATIC
     # Program screens
     programs/FobProgram.h
     programs/FobProgram.cpp
+    programs/DevicesProgram.h
+    programs/DevicesProgram.cpp
     programs/JamProgram.h
     programs/JamProgram.cpp
     programs/DebugProgram.h
