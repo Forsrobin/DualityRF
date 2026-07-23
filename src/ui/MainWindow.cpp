@@ -4,6 +4,7 @@
 #include "storage/IqFileReader.h"
 #include "ui/panels/CaptureControlPanel.h"
 #include "ui/panels/CapturePanel.h"
+#include "ui/panels/LookingPanel.h"
 #include "ui/HomePage.h"
 #include "ui/panels/PlaybackPanel.h"
 #include "ui/ProgramScreen.h"
@@ -20,6 +21,7 @@
 #include "ui/programs/FobProgram.h"
 #include "ui/programs/InfoProgram.h"
 #include "ui/programs/JamProgram.h"
+#include "ui/programs/LookingProgram.h"
 #include "ui/programs/SessionsProgram.h"
 
 #include <QApplication>
@@ -116,6 +118,15 @@ MainWindow::MainWindow()
   addProgram(tr("CAPTURE"), QStringLiteral(":/assets/capture.png"),
              m_captureProgram);
 
+  // LOOKING glass: monitor-only analysis tool over the shared pipeline and the
+  // same broadcast views.
+  m_lookingProgram = new LookingProgram(this);
+  m_lookingPanel = m_lookingProgram->panel();
+  m_spectrumViews.push_back(m_lookingProgram->spectrumView());
+  m_waterfallViews.push_back(m_lookingProgram->waterfallView());
+  addProgram(tr("LOOKING"), QStringLiteral(":/assets/looking_glass.png"),
+             m_lookingProgram);
+
   // Full session manager. Like the device selector it uses return-to-caller
   // navigation so a session tile on FOB/CAPTURE comes back to that program.
   m_sessionsProgram = new SessionsProgram(&m_store, this);
@@ -174,7 +185,7 @@ MainWindow::MainWindow()
               view->setTrace(row);
             for (WaterfallWidget *view : m_waterfallViews)
               view->addRow(row);
-            if (!m_monitorLive)
+            if (!m_monitorLive || !m_peakMarkersEnabled)
               return;
             QVector<DetectedPeak> appeared;
             const QVector<DetectedPeak> peaks =
@@ -244,6 +255,32 @@ MainWindow::MainWindow()
   connect(m_capturePanel, &CapturePanel::peakThresholdChanged, this,
           [this](double db) {
             m_peakDetector.setThresholdDb(static_cast<float>(db));
+          });
+
+  // LOOKING glass: monitor only, one START/STOP button, peak detection toggle.
+  connect(m_lookingPanel, &LookingPanel::startRequested, this, [this] {
+    if (m_capture.running())
+      return;
+    setActiveCapture(m_lookingPanel, false);
+    startCapture(false);
+  });
+  connect(m_lookingPanel, &LookingPanel::stopRequested, this,
+          &MainWindow::stopCapture);
+  connect(m_lookingPanel, &LookingPanel::paramsChanged, this,
+          &MainWindow::updateCaptureRangeOverlay);
+  connect(m_lookingPanel, &LookingPanel::peakThresholdChanged, this,
+          [this](double db) {
+            m_peakDetector.setThresholdDb(static_cast<float>(db));
+          });
+  // Toggle peak markers live while monitoring; clear them when turned off.
+  connect(m_lookingPanel, &LookingPanel::peakDetectionToggled, this,
+          [this](bool on) {
+            m_peakMarkersEnabled = on;
+            if (!on) {
+              m_peakDetector.reset();
+              for (SpectrumWidget *view : m_spectrumViews)
+                view->setMarkers({});
+            }
           });
   connect(
       &m_capture, &CapturePipeline::progress, this,
@@ -502,7 +539,9 @@ void MainWindow::startCapture(bool record) {
   m_peakDetector.setThresholdDb(
       static_cast<float>(m_activeCapture->peakThresholdDb()));
   m_peakDetector.reset();
-  // Peak markers run for monitor and auto (both keep the live spectrum).
+  // Peak markers run for monitor and auto (both keep the live spectrum). The
+  // LOOKING glass can suppress them via its checkbox.
+  m_peakMarkersEnabled = m_activeCapture->peakDetectionEnabled();
   m_monitorLive = !record || autoMode;
   if (autoMode)
     startAutoCapture();
@@ -759,6 +798,7 @@ void MainWindow::updateCaptureRangeOverlay() {
   };
   apply(m_fobProgram->spectrumView(), m_capturePanel);
   apply(m_captureProgram->spectrumView(), m_captureProgram->capturePanel());
+  apply(m_lookingProgram->spectrumView(), m_lookingPanel);
 }
 
 void MainWindow::onCaptureFinished(const RecordingMetadata &meta,

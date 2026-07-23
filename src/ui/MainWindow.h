@@ -27,6 +27,8 @@ class DevicesProgram;
 class FobProgram;
 class HomePage;
 class InfoProgram;
+class LookingPanel;
+class LookingProgram;
 class PlaybackPanel;
 class ProgramScreen;
 class SessionList;
@@ -192,6 +194,14 @@ private:
     // that source may use concurrent TX / replay (FOB only).
     ICaptureControls *m_activeCapture = nullptr;
     bool m_activeAllowTx = true;
+    // Whether the live monitor runs peak detection. Always on for FOB/CAPTURE;
+    // the LOOKING program toggles it. Set at capture start and live via the
+    // panel's checkbox.
+    bool m_peakMarkersEnabled = true;
+
+    // Monitor-only LOOKING glass program.
+    LookingProgram *m_lookingProgram = nullptr;
+    LookingPanel *m_lookingPanel = nullptr; // owned by m_lookingProgram
 };
 
 } // namespace duality

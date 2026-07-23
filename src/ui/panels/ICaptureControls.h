@@ -22,6 +22,10 @@ public:
     // Replay mode is a FOB-only feature; the CAPTURE program returns false.
     virtual bool replayMode() const = 0;
 
+    // Whether the live monitor should run peak detection. Defaults on; the
+    // LOOKING program exposes it as a checkbox.
+    virtual bool peakDetectionEnabled() const { return true; }
+
     virtual void setRunning(bool running) = 0;
 };
 
