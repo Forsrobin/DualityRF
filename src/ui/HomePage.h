@@ -4,6 +4,7 @@
 
 class QGridLayout;
 class QLabel;
+class QToolButton;
 
 namespace duality {
 
@@ -27,6 +28,12 @@ signals:
     void exitRequested();
 
 private:
+    // Builds a grid tile with the shared geometry so program tiles and the EXIT
+    // tile are laid out identically.
+    QToolButton *createTile(const QString &text);
+    // Adds a tile to the next grid slot and pins that row to the tile height.
+    void placeTile(QToolButton *tile);
+
     QGridLayout *m_grid;
     QLabel *m_clock;
     int m_count = 0;

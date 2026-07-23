@@ -91,44 +91,56 @@ HomePage::HomePage(QWidget *parent)
     timer->start(1000);
 }
 
-void HomePage::addProgram(const QString &name, const QString &iconPath)
+QToolButton *HomePage::createTile(const QString &text)
 {
     auto *tile = new QToolButton(this);
-    tile->setText(name);
-    tile->setIcon(QIcon(iconPath));
+    tile->setText(text);
     tile->setIconSize(QSize(28, 28));
     tile->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     tile->setCursor(Qt::PointingHandCursor);
-    tile->setFixedHeight(kTileHeight);
-    tile->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    // Fill the cell in both directions; the grid row (set to kTileHeight below)
+    // fixes the height, so every tile is exactly the same size regardless of
+    // whether it carries an icon (EXIT does not).
+    tile->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    return tile;
+}
+
+void HomePage::placeTile(QToolButton *tile)
+{
+    const int row = m_count / kColumns;
+    m_grid->addWidget(tile, row, m_count % kColumns);
+    // Pin the row height so tiles never grow to their content size hint (which
+    // differs between icon and text-only tiles).
+    m_grid->setRowMinimumHeight(row, kTileHeight);
+    ++m_count;
+}
+
+void HomePage::addProgram(const QString &name, const QString &iconPath)
+{
+    auto *tile = createTile(name);
+    tile->setIcon(QIcon(iconPath));
     // White tile, gray border, black text (inverse of the default button).
     tile->setStyleSheet(QStringLiteral(
         "QToolButton { background: #ffffff; color: #000000;"
         " border: 1px solid #808080; }"
         "QToolButton:pressed { background: #d0d0d0; }"));
 
-    const int index = m_count++;
+    const int index = m_count;
     connect(tile, &QToolButton::clicked, this,
             [this, index] { emit programActivated(index); });
-    m_grid->addWidget(tile, index / kColumns, index % kColumns);
+    placeTile(tile);
 }
 
 void HomePage::addExitTile()
 {
-    auto *tile = new QToolButton(this);
-    tile->setText(QStringLiteral("EXIT"));
-    tile->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    tile->setCursor(Qt::PointingHandCursor);
-    tile->setFixedHeight(kTileHeight);
-    tile->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    auto *tile = createTile(QStringLiteral("EXIT"));
     tile->setStyleSheet(QStringLiteral(
         "QToolButton { background: #cc0000; color: #ffffff;"
         " border: 1px solid #990000; font-weight: bold; }"
         "QToolButton:pressed { background: #990000; }"));
 
     connect(tile, &QToolButton::clicked, this, &HomePage::exitRequested);
-    m_grid->addWidget(tile, m_count / kColumns, m_count % kColumns);
-    ++m_count;
+    placeTile(tile);
 }
 
 } // namespace duality
