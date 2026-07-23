@@ -5,7 +5,7 @@
 namespace duality {
 
 class CaptureControlPanel;
-class SessionBrowser;
+class SessionList;
 class SessionStore;
 class SpectrumWidget;
 class WaterfallWidget;
@@ -21,13 +21,13 @@ public:
     explicit CaptureProgram(SessionStore *store, QWidget *parent = nullptr);
 
     CaptureControlPanel *capturePanel() const { return m_capturePanel; }
-    SessionBrowser *sessionBrowser() const { return m_sessionBrowser; }
+    SessionList *sessionList() const { return m_sessionList; }
     SpectrumWidget *spectrumView() const { return m_spectrumView; }
     WaterfallWidget *waterfallView() const { return m_waterfallView; }
 
 private:
     CaptureControlPanel *m_capturePanel;
-    SessionBrowser *m_sessionBrowser;
+    SessionList *m_sessionList;
     SpectrumWidget *m_spectrumView;
     WaterfallWidget *m_waterfallView;
 };

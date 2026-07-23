@@ -3,6 +3,7 @@
         <file alias="logo.png">../assets/logo.png</file>
         <file alias="fob.png">../assets/fob.png</file>
         <file alias="capture.png">../assets/capture.png</file>
+        <file alias="sessions.png">../assets/sessions.png</file>
         <file alias="bug.png">../assets/bug.png</file>
         <file alias="info.png">../assets/info.png</file>
         <file alias="jam.png">../assets/jam.png</file>

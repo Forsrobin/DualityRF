@@ -2,7 +2,7 @@
 
 #include "ui/components/FlowLayout.h"
 #include "ui/panels/CaptureControlPanel.h"
-#include "ui/panels/SessionBrowser.h"
+#include "ui/panels/SessionList.h"
 #include "ui/panels/VizPanel.h"
 #include "ui/widgets/SpectrumWidget.h"
 #include "ui/widgets/WaterfallWidget.h"
@@ -18,7 +18,7 @@ namespace duality {
 CaptureProgram::CaptureProgram(SessionStore *store, QWidget *parent)
     : QWidget(parent)
     , m_capturePanel(new CaptureControlPanel(this))
-    , m_sessionBrowser(new SessionBrowser(store, this))
+    , m_sessionList(new SessionList(store, this))
     , m_spectrumView(new SpectrumWidget(this))
     , m_waterfallView(new WaterfallWidget(this))
 {
@@ -48,7 +48,7 @@ CaptureProgram::CaptureProgram(SessionStore *store, QWidget *parent)
         tabFlow->addWidget(button);
     };
     addTab(tr("CAPTURE"), m_capturePanel);
-    addTab(tr("SESSIONS"), m_sessionBrowser);
+    addTab(tr("SESSIONS"), m_sessionList);
     connect(tabGroup, &QButtonGroup::idClicked, panelStack,
             &QStackedWidget::setCurrentIndex);
     tabGroup->button(0)->setChecked(true);

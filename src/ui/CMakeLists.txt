@@ -39,8 +39,8 @@ add_library(duality_ui STATIC
     panels/TransmitPanel.cpp
     panels/PlaybackPanel.h
     panels/PlaybackPanel.cpp
-    panels/SessionBrowser.h
-    panels/SessionBrowser.cpp
+    panels/SessionList.h
+    panels/SessionList.cpp
     panels/VizPanel.h
     panels/VizPanel.cpp
 
@@ -49,6 +49,8 @@ add_library(duality_ui STATIC
     programs/FobProgram.cpp
     programs/CaptureProgram.h
     programs/CaptureProgram.cpp
+    programs/SessionsProgram.h
+    programs/SessionsProgram.cpp
     programs/DevicesProgram.h
     programs/DevicesProgram.cpp
     programs/JamProgram.h

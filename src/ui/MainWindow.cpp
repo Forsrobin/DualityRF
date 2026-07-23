@@ -7,7 +7,7 @@
 #include "ui/HomePage.h"
 #include "ui/panels/PlaybackPanel.h"
 #include "ui/ProgramScreen.h"
-#include "ui/panels/SessionBrowser.h"
+#include "ui/panels/SessionList.h"
 #include "ui/widgets/SpectrumWidget.h"
 #include "ui/SplashPage.h"
 #include "ui/Theme.h"
@@ -20,6 +20,7 @@
 #include "ui/programs/FobProgram.h"
 #include "ui/programs/InfoProgram.h"
 #include "ui/programs/JamProgram.h"
+#include "ui/programs/SessionsProgram.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -69,10 +70,12 @@ MainWindow::MainWindow()
   connect(m_home, &HomePage::exitRequested, qApp, &QApplication::quit);
   connect(m_home, &HomePage::programActivated, this, [this](int index) {
     const int target = index + 1; // stack index (home is 0)
-    // The device selector uses history-aware navigation; everything else
-    // just switches straight to its screen.
+    // The device selector and session manager use history-aware navigation;
+    // everything else just switches straight to its screen.
     if (target == m_devicesIndex)
       openDevices(DeviceFocus::None);
+    else if (target == m_sessionsIndex)
+      openSessions(QString());
     else
       m_stack->setCurrentIndex(target);
   });
@@ -98,8 +101,7 @@ MainWindow::MainWindow()
   m_capturePanel = m_fobProgram->capturePanel();
   m_activeCapture = m_capturePanel; // default source until a program arms it
   m_transmitPanel = m_fobProgram->transmitPanel();
-  m_playbackPanel = m_fobProgram->playbackPanel();
-  m_sessionBrowser = m_fobProgram->sessionBrowser();
+  m_fobSessionList = m_fobProgram->sessionList();
   m_spectrumViews.push_back(m_fobProgram->spectrumView());
   m_waterfallViews.push_back(m_fobProgram->waterfallView());
   addProgram(tr("FOB"), QStringLiteral(":/assets/fob.png"), m_fobProgram);
@@ -108,11 +110,25 @@ MainWindow::MainWindow()
   // the same waterfall/FFT view, driving the shared capture pipeline. Its views
   // join the broadcast list so the live capture renders here too.
   m_captureProgram = new CaptureProgram(&m_store, this);
-  m_captureSessionBrowser = m_captureProgram->sessionBrowser();
+  m_captureSessionList = m_captureProgram->sessionList();
   m_spectrumViews.push_back(m_captureProgram->spectrumView());
   m_waterfallViews.push_back(m_captureProgram->waterfallView());
   addProgram(tr("CAPTURE"), QStringLiteral(":/assets/capture.png"),
              m_captureProgram);
+
+  // Full session manager. Like the device selector it uses return-to-caller
+  // navigation so a session tile on FOB/CAPTURE comes back to that program.
+  m_sessionsProgram = new SessionsProgram(&m_store, this);
+  // The only playback panel now lives in the Sessions manager; the pipeline
+  // wiring below drives it.
+  m_playbackPanel = m_sessionsProgram->playbackPanel();
+  m_activePlayback = m_playbackPanel;
+  ProgramScreen *sessionsScreen = addProgram(
+      tr("SESSIONS"), QStringLiteral(":/assets/sessions.png"), m_sessionsProgram);
+  m_sessionsIndex = m_stack->indexOf(sessionsScreen);
+  disconnect(sessionsScreen, &ProgramScreen::backRequested, nullptr, nullptr);
+  connect(sessionsScreen, &ProgramScreen::backRequested, this,
+          [this] { m_stack->setCurrentIndex(m_sessionsReturnIndex); });
 
   m_jamProgram = new JamProgram(this);
   m_jamScreen = addProgram(tr("JAM"), QStringLiteral(":/assets/jam.png"),
@@ -248,33 +264,44 @@ MainWindow::MainWindow()
               m_activeCapture->setRunning(false);
           });
 
-  // Playback from the panel.
-  connect(m_playbackPanel, &PlaybackPanel::playRequested, this, [this] {
-    startPlayback(m_playbackPanel->recordingPath(),
-                  m_playbackPanel->streamParams(),
-                  m_playbackPanel->recordingMetadata().format,
-                  m_playbackPanel->speed(), m_playbackPanel->repeat());
-  });
-  connect(m_playbackPanel, &PlaybackPanel::stopRequested, &m_playback,
-          &PlaybackPipeline::stop);
-  connect(&m_playback, &PlaybackPipeline::progress, m_playbackPanel,
-          &PlaybackPanel::setProgress);
+  // Playback: both the FOB playback tab and the Sessions manager's player feed
+  // the one shared pipeline. Whichever asks to play becomes the active panel so
+  // progress/finish routes back to it.
+  const auto wirePlayback = [this](PlaybackPanel *panel) {
+    connect(panel, &PlaybackPanel::playRequested, this, [this, panel] {
+      m_activePlayback = panel;
+      startPlayback(panel->recordingPath(), panel->streamParams(),
+                    panel->recordingMetadata().format, panel->speed(),
+                    panel->repeat());
+    });
+    connect(panel, &PlaybackPanel::stopRequested, &m_playback,
+            &PlaybackPipeline::stop);
+  };
+  wirePlayback(m_playbackPanel);
+  connect(&m_playback, &PlaybackPipeline::progress, this,
+          [this](double sec, double total) {
+            if (m_activePlayback)
+              m_activePlayback->setProgress(sec, total);
+          });
   connect(&m_playback, &PlaybackPipeline::finished, this, [this] {
-    m_playbackPanel->setPlaying(false);
+    if (m_activePlayback)
+      m_activePlayback->setPlaying(false);
     statusBar()->showMessage(tr("Playback finished"));
   });
   connect(&m_playback, &PlaybackPipeline::errorOccurred, this,
           [this](const QString &msg) {
-            m_playbackPanel->setPlaying(false);
+            if (m_activePlayback)
+              m_activePlayback->setPlaying(false);
             statusBar()->showMessage(msg);
           });
 
-  // Session browser → playback panel; debug replay → playback pipeline.
-  connect(m_sessionBrowser, &SessionBrowser::recordingSelected, this,
-          [this](const QString &sessionDir, const RecordingMetadata &meta) {
-            // Point the playback dropdowns at the clicked session/recording.
-            m_playbackPanel->select(sessionDir, meta.file);
-          });
+  // Tapping a session tile on FOB/CAPTURE opens it in the Sessions manager.
+  connect(m_fobSessionList, &SessionList::sessionActivated, this,
+          &MainWindow::openSessions);
+  connect(m_captureSessionList, &SessionList::sessionActivated, this,
+          &MainWindow::openSessions);
+
+  // Session create/delete from the manager → refresh every view.
   const auto onNewSession = [this] {
     m_session = m_store.createSession();
     refreshBrowsers();
@@ -282,10 +309,13 @@ MainWindow::MainWindow()
     m_playbackPanel->refresh();
     statusBar()->showMessage(tr("Created %1").arg(m_session->name()));
   };
-  connect(m_sessionBrowser, &SessionBrowser::newSessionRequested, this,
+  connect(m_sessionsProgram, &SessionsProgram::newSessionRequested, this,
           onNewSession);
-  connect(m_captureSessionBrowser, &SessionBrowser::newSessionRequested, this,
-          onNewSession);
+  connect(m_sessionsProgram, &SessionsProgram::sessionsChanged, this, [this] {
+    refreshBrowsers();
+    m_debugProgram->refreshSessions();
+    m_playbackPanel->refresh();
+  });
   connect(m_debugProgram, &DebugProgram::replayRequested, this,
           [this](const QString &absPath, const RecordingMetadata &meta) {
             StreamParams p;
@@ -358,6 +388,18 @@ void MainWindow::openDevices(DeviceFocus focus) {
   m_stack->setCurrentIndex(m_devicesIndex);
 }
 
+void MainWindow::openSessions(const QString &sessionDir) {
+  if (m_stack->currentIndex() == m_sessionsIndex)
+    return; // already in the manager
+  m_sessionsReturnIndex = m_stack->currentIndex();
+  m_sessionsProgram->refresh();
+  if (sessionDir.isEmpty())
+    m_sessionsProgram->showList();
+  else
+    m_sessionsProgram->openSession(sessionDir);
+  m_stack->setCurrentIndex(m_sessionsIndex);
+}
+
 void MainWindow::refreshDeviceBadges() {
   const auto rx = m_devicesProgram->selectedRx();
   const auto tx = m_devicesProgram->selectedTx();
@@ -383,9 +425,11 @@ void MainWindow::setActiveCapture(ICaptureControls *controls, bool allowTx) {
 }
 
 void MainWindow::refreshBrowsers() {
-  m_sessionBrowser->refresh();
-  if (m_captureSessionBrowser)
-    m_captureSessionBrowser->refresh();
+  m_fobSessionList->refresh();
+  if (m_captureSessionList)
+    m_captureSessionList->refresh();
+  if (m_sessionsProgram)
+    m_sessionsProgram->refresh();
 }
 
 void MainWindow::startCapture(bool record) {
@@ -777,7 +821,8 @@ void MainWindow::startPlayback(const QString &absPath,
   p.speed = speed;
   p.repeat = repeat;
   if (m_playback.start(std::move(txDevice), absPath, p)) {
-    m_playbackPanel->setPlaying(true);
+    if (m_activePlayback)
+      m_activePlayback->setPlaying(true);
     statusBar()->showMessage(tr("Transmitting %1").arg(absPath));
   }
 }

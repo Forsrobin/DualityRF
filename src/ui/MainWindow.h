@@ -29,7 +29,8 @@ class HomePage;
 class InfoProgram;
 class PlaybackPanel;
 class ProgramScreen;
-class SessionBrowser;
+class SessionList;
+class SessionsProgram;
 class SplashPage;
 class SpectrumWidget;
 class ToastManager;
@@ -69,6 +70,10 @@ private:
     // Switch to the Devicees program, remembering the current screen so its
     // back arrow returns here. No-op if already on it.
     void openDevices(DeviceFocus focus);
+    // Switch to the Sessions manager, remembering the current screen for its
+    // back arrow. An empty dir opens the list; otherwise it jumps to that
+    // session's detail page.
+    void openSessions(const QString &sessionDir);
     // Push the current RX/TX selection into every program's top-bar badges.
     void refreshDeviceBadges();
 
@@ -170,12 +175,19 @@ private:
     CapturePanel *m_capturePanel;
     TransmitPanel *m_transmitPanel;
     PlaybackPanel *m_playbackPanel;
-    SessionBrowser *m_sessionBrowser;
+    SessionList *m_fobSessionList; // owned by m_fobProgram
 
     // Standalone CAPTURE program: a simplified capture panel + its own session
-    // browser, both feeding the one shared capture pipeline.
+    // list, both feeding the one shared capture pipeline.
     CaptureProgram *m_captureProgram = nullptr;
-    SessionBrowser *m_captureSessionBrowser = nullptr; // owned by m_captureProgram
+    SessionList *m_captureSessionList = nullptr; // owned by m_captureProgram
+
+    // Full session manager, opened from the home grid or a session tile.
+    SessionsProgram *m_sessionsProgram = nullptr;
+    int m_sessionsIndex = -1;      // stack index of the Sessions screen
+    int m_sessionsReturnIndex = 0; // where its back arrow returns to
+    // Playback panel currently driving the shared pipeline (FOB or Sessions).
+    PlaybackPanel *m_activePlayback = nullptr;
     // Controls currently driving the pipeline (FOB or CAPTURE panel) and whether
     // that source may use concurrent TX / replay (FOB only).
     ICaptureControls *m_activeCapture = nullptr;

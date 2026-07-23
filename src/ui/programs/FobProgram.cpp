@@ -2,8 +2,7 @@
 
 #include "ui/panels/CapturePanel.h"
 #include "ui/components/FlowLayout.h"
-#include "ui/panels/PlaybackPanel.h"
-#include "ui/panels/SessionBrowser.h"
+#include "ui/panels/SessionList.h"
 #include "ui/widgets/SpectrumWidget.h"
 #include "ui/panels/TransmitPanel.h"
 #include "ui/panels/VizPanel.h"
@@ -21,8 +20,7 @@ FobProgram::FobProgram(SessionStore *store, QWidget *parent)
     : QWidget(parent)
     , m_capturePanel(new CapturePanel(this))
     , m_transmitPanel(new TransmitPanel(this))
-    , m_playbackPanel(new PlaybackPanel(store, this))
-    , m_sessionBrowser(new SessionBrowser(store, this))
+    , m_sessionList(new SessionList(store, this))
     , m_spectrumView(new SpectrumWidget(this))
     , m_waterfallView(new WaterfallWidget(this))
 {
@@ -57,8 +55,7 @@ FobProgram::FobProgram(SessionStore *store, QWidget *parent)
     };
     addTab(tr("CAPTURE"), m_capturePanel);
     addTab(tr("CONCURRENT TX"), m_transmitPanel);
-    addTab(tr("SESSIONS"), m_sessionBrowser);
-    addTab(tr("PLAYBACK"), m_playbackPanel);
+    addTab(tr("SESSIONS"), m_sessionList);
     connect(tabGroup, &QButtonGroup::idClicked, panelStack,
             &QStackedWidget::setCurrentIndex);
     tabGroup->button(0)->setChecked(true);
