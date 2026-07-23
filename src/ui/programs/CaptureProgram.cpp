@@ -1,11 +1,10 @@
-#include "ui/programs/FobProgram.h"
+#include "ui/programs/CaptureProgram.h"
 
-#include "ui/panels/CapturePanel.h"
 #include "ui/components/FlowLayout.h"
+#include "ui/panels/CaptureControlPanel.h"
 #include "ui/panels/SessionList.h"
-#include "ui/widgets/SpectrumWidget.h"
-#include "ui/panels/TransmitPanel.h"
 #include "ui/panels/VizPanel.h"
+#include "ui/widgets/SpectrumWidget.h"
 #include "ui/widgets/WaterfallWidget.h"
 
 #include <QButtonGroup>
@@ -16,21 +15,18 @@
 
 namespace duality {
 
-FobProgram::FobProgram(SessionStore *store, QWidget *parent)
+CaptureProgram::CaptureProgram(SessionStore *store, QWidget *parent)
     : QWidget(parent)
-    , m_capturePanel(new CapturePanel(this))
-    , m_transmitPanel(new TransmitPanel(this))
+    , m_capturePanel(new CaptureControlPanel(this))
     , m_sessionList(new SessionList(store, this))
     , m_spectrumView(new SpectrumWidget(this))
     , m_waterfallView(new WaterfallWidget(this))
 {
-    // One tab row for every control panel (top 3/4). The tabs are checkable
-    // buttons in a FlowLayout so they wrap to more rows instead of overflowing
-    // the 320px width; each drives the panel stack below.
+    // Same wrapping tab-row pattern as the FOB program, but with only the two
+    // panels this program needs. There is no visualization strip here.
     auto *panelStack = new QStackedWidget(this);
     auto *tabBar = new QWidget(this);
     tabBar->setObjectName(QStringLiteral("panelTabBar"));
-    // Full-width border under the wrapping tab row.
     tabBar->setStyleSheet(
         QStringLiteral("#panelTabBar { border-bottom: 1px solid #ffffff; }"));
     auto *tabFlow = new FlowLayout(tabBar, 4, 4, 4);
@@ -38,8 +34,6 @@ FobProgram::FobProgram(SessionStore *store, QWidget *parent)
     tabGroup->setExclusive(true);
 
     const auto addTab = [&](const QString &title, QWidget *panel) {
-        // Wrap each panel so a tall control set scrolls rather than being
-        // squeezed into the short window.
         auto *scroll = new QScrollArea;
         scroll->setWidget(panel);
         scroll->setWidgetResizable(true);
@@ -54,14 +48,13 @@ FobProgram::FobProgram(SessionStore *store, QWidget *parent)
         tabFlow->addWidget(button);
     };
     addTab(tr("CAPTURE"), m_capturePanel);
-    addTab(tr("CONCURRENT TX"), m_transmitPanel);
     addTab(tr("SESSIONS"), m_sessionList);
     connect(tabGroup, &QButtonGroup::idClicked, panelStack,
             &QStackedWidget::setCurrentIndex);
     tabGroup->button(0)->setChecked(true);
 
-    // Bottom 1/4: a single visualization of the live capture, switchable
-    // between the waterfall and the FFT trace.
+    // Bottom half: the same switchable waterfall/FFT view of the live capture as
+    // the FOB program, sharing the 1/2 split below the tab row.
     m_spectrumView->setMinimumHeight(60);
     m_waterfallView->setMinimumHeight(60);
     auto *viz = new VizPanel(m_waterfallView, m_spectrumView);

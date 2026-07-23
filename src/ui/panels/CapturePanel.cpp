@@ -103,8 +103,8 @@ CapturePanel::CapturePanel(QWidget *parent)
     layout->addRow(tr("Trigger"), m_trigger);
     layout->addRow(m_monitorButton);
     layout->addRow(m_recordButton);
-    layout->addRow(replayRow);
     layout->addRow(m_stopButton);
+    layout->addRow(replayRow);
     layout->addRow(tr("Frequency"), m_frequency);
     layout->addRow(tr("Sample rate"), m_sampleRate);
     layout->addRow(tr("Bandwidth"), m_bandwidth);
@@ -196,6 +196,11 @@ void CapturePanel::setRunning(bool running)
     m_monitorButton->setEnabled(!running);
     m_recordButton->setEnabled(!running);
     m_stopButton->setEnabled(running);
+    m_stopButton->setStyleSheet(running
+        ? QStringLiteral("QPushButton { background:#cc0000; color:#ffffff;"
+                         " border:1px solid #990000; font-weight:bold; }"
+                         "QPushButton:pressed { background:#990000; }")
+        : QString());
 }
 
 void CapturePanel::setConcurrentTxEnabled(bool enabled)

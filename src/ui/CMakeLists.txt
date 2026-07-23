@@ -30,20 +30,31 @@ add_library(duality_ui STATIC
     widgets/WaterfallWidget.cpp
 
     # Control panels
+    panels/ICaptureControls.h
     panels/CapturePanel.h
     panels/CapturePanel.cpp
+    panels/CaptureControlPanel.h
+    panels/CaptureControlPanel.cpp
+    panels/LookingPanel.h
+    panels/LookingPanel.cpp
     panels/TransmitPanel.h
     panels/TransmitPanel.cpp
     panels/PlaybackPanel.h
     panels/PlaybackPanel.cpp
-    panels/SessionBrowser.h
-    panels/SessionBrowser.cpp
+    panels/SessionList.h
+    panels/SessionList.cpp
     panels/VizPanel.h
     panels/VizPanel.cpp
 
     # Program screens
     programs/FobProgram.h
     programs/FobProgram.cpp
+    programs/CaptureProgram.h
+    programs/CaptureProgram.cpp
+    programs/SessionsProgram.h
+    programs/SessionsProgram.cpp
+    programs/LookingProgram.h
+    programs/LookingProgram.cpp
     programs/DevicesProgram.h
     programs/DevicesProgram.cpp
     programs/JamProgram.h

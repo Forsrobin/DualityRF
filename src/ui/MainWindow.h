@@ -18,15 +18,21 @@ class QStackedWidget;
 
 namespace duality {
 
+class CaptureControlPanel;
+class CaptureProgram;
 class CapturePanel;
 class DebugProgram;
+class ICaptureControls;
 class DevicesProgram;
 class FobProgram;
 class HomePage;
 class InfoProgram;
+class LookingPanel;
+class LookingProgram;
 class PlaybackPanel;
 class ProgramScreen;
-class SessionBrowser;
+class SessionList;
+class SessionsProgram;
 class SplashPage;
 class SpectrumWidget;
 class ToastManager;
@@ -66,10 +72,19 @@ private:
     // Switch to the Devicees program, remembering the current screen so its
     // back arrow returns here. No-op if already on it.
     void openDevices(DeviceFocus focus);
+    // Switch to the Sessions manager, remembering the current screen for its
+    // back arrow. An empty dir opens the list; otherwise it jumps to that
+    // session's detail page.
+    void openSessions(const QString &sessionDir);
     // Push the current RX/TX selection into every program's top-bar badges.
     void refreshDeviceBadges();
 
     Session *ensureSession();
+    // Point the shared capture pipeline at whichever program's controls just
+    // armed it; allowTx gates the FOB-only concurrent TX + replay features.
+    void setActiveCapture(ICaptureControls *controls, bool allowTx);
+    // Refresh every session browser (FOB + CAPTURE) after the store changes.
+    void refreshBrowsers();
     void cacheRecordingSpectrum(const RecordingMetadata &meta);
     void updateCaptureRangeOverlay();
     // Opens the transmitter and starts the concurrent waveform on the given
@@ -137,8 +152,10 @@ private:
     SplashPage *m_splash;
     HomePage *m_home;
     FobProgram *m_fobProgram;
-    SpectrumWidget *m_spectrumView;   // owned by m_fobProgram (alias)
-    WaterfallWidget *m_waterfallView; // owned by m_fobProgram (alias)
+    // Live spectrum/waterfall views to broadcast each frame to — the FOB and
+    // CAPTURE programs each own one pair (owned there, aliased here).
+    QVector<SpectrumWidget *> m_spectrumViews;
+    QVector<WaterfallWidget *> m_waterfallViews;
     DebugProgram *m_debugProgram;
     QWidget *m_debugScreen = nullptr; // back-bar wrapper around the workspace
     InfoProgram *m_infoProgram;
@@ -160,7 +177,31 @@ private:
     CapturePanel *m_capturePanel;
     TransmitPanel *m_transmitPanel;
     PlaybackPanel *m_playbackPanel;
-    SessionBrowser *m_sessionBrowser;
+    SessionList *m_fobSessionList; // owned by m_fobProgram
+
+    // Standalone CAPTURE program: a simplified capture panel + its own session
+    // list, both feeding the one shared capture pipeline.
+    CaptureProgram *m_captureProgram = nullptr;
+    SessionList *m_captureSessionList = nullptr; // owned by m_captureProgram
+
+    // Full session manager, opened from the home grid or a session tile.
+    SessionsProgram *m_sessionsProgram = nullptr;
+    int m_sessionsIndex = -1;      // stack index of the Sessions screen
+    int m_sessionsReturnIndex = 0; // where its back arrow returns to
+    // Playback panel currently driving the shared pipeline (FOB or Sessions).
+    PlaybackPanel *m_activePlayback = nullptr;
+    // Controls currently driving the pipeline (FOB or CAPTURE panel) and whether
+    // that source may use concurrent TX / replay (FOB only).
+    ICaptureControls *m_activeCapture = nullptr;
+    bool m_activeAllowTx = true;
+    // Whether the live monitor runs peak detection. Always on for FOB/CAPTURE;
+    // the LOOKING program toggles it. Set at capture start and live via the
+    // panel's checkbox.
+    bool m_peakMarkersEnabled = true;
+
+    // Monitor-only LOOKING glass program.
+    LookingProgram *m_lookingProgram = nullptr;
+    LookingPanel *m_lookingPanel = nullptr; // owned by m_lookingProgram
 };
 
 } // namespace duality
