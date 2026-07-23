@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Types.h"
+#include "ui/panels/ICaptureControls.h"
 
 #include <QWidget>
 
@@ -13,25 +14,25 @@ namespace duality {
 
 // One recording stage: tuning parameters, duration and trigger mode, with
 // MONITOR (no file) / RECORD / STOP controls.
-class CapturePanel : public QWidget {
+class CapturePanel : public QWidget, public ICaptureControls {
     Q_OBJECT
 public:
     explicit CapturePanel(QWidget *parent = nullptr);
 
-    StreamParams streamParams() const;
-    QString trigger() const;
-    double peakThresholdDb() const;
+    StreamParams streamParams() const override;
+    QString trigger() const override;
+    double peakThresholdDb() const override;
     // ± capture range (half-width) in Hz, used for the spectrum overlay and to
     // trim auto-captured segments.
-    double captureRangeHz() const;
+    double captureRangeHz() const override;
     // How long an auto segment stays open after the signal drops below
     // threshold, bridging modulation gaps so one transmission is not split.
-    double hangTimeMs() const;
+    double hangTimeMs() const override;
     // Replay mode: capture two auto segments, then drop concurrent TX, switch
     // to monitor and replay the first. Forces (and locks) the trigger to auto.
-    bool replayMode() const;
+    bool replayMode() const override;
 
-    void setRunning(bool running);
+    void setRunning(bool running) override;
     // Reflects the CONCURRENT TX enable state (owned by the transmit panel) in
     // a small indicator here, so it is visible without switching tabs.
     void setConcurrentTxEnabled(bool enabled);

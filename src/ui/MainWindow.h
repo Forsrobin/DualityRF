@@ -18,8 +18,11 @@ class QStackedWidget;
 
 namespace duality {
 
+class CaptureControlPanel;
+class CaptureProgram;
 class CapturePanel;
 class DebugProgram;
+class ICaptureControls;
 class DevicesProgram;
 class FobProgram;
 class HomePage;
@@ -70,6 +73,11 @@ private:
     void refreshDeviceBadges();
 
     Session *ensureSession();
+    // Point the shared capture pipeline at whichever program's controls just
+    // armed it; allowTx gates the FOB-only concurrent TX + replay features.
+    void setActiveCapture(ICaptureControls *controls, bool allowTx);
+    // Refresh every session browser (FOB + CAPTURE) after the store changes.
+    void refreshBrowsers();
     void cacheRecordingSpectrum(const RecordingMetadata &meta);
     void updateCaptureRangeOverlay();
     // Opens the transmitter and starts the concurrent waveform on the given
@@ -137,8 +145,10 @@ private:
     SplashPage *m_splash;
     HomePage *m_home;
     FobProgram *m_fobProgram;
-    SpectrumWidget *m_spectrumView;   // owned by m_fobProgram (alias)
-    WaterfallWidget *m_waterfallView; // owned by m_fobProgram (alias)
+    // Live spectrum/waterfall views to broadcast each frame to — the FOB and
+    // CAPTURE programs each own one pair (owned there, aliased here).
+    QVector<SpectrumWidget *> m_spectrumViews;
+    QVector<WaterfallWidget *> m_waterfallViews;
     DebugProgram *m_debugProgram;
     QWidget *m_debugScreen = nullptr; // back-bar wrapper around the workspace
     InfoProgram *m_infoProgram;
@@ -161,6 +171,15 @@ private:
     TransmitPanel *m_transmitPanel;
     PlaybackPanel *m_playbackPanel;
     SessionBrowser *m_sessionBrowser;
+
+    // Standalone CAPTURE program: a simplified capture panel + its own session
+    // browser, both feeding the one shared capture pipeline.
+    CaptureProgram *m_captureProgram = nullptr;
+    SessionBrowser *m_captureSessionBrowser = nullptr; // owned by m_captureProgram
+    // Controls currently driving the pipeline (FOB or CAPTURE panel) and whether
+    // that source may use concurrent TX / replay (FOB only).
+    ICaptureControls *m_activeCapture = nullptr;
+    bool m_activeAllowTx = true;
 };
 
 } // namespace duality

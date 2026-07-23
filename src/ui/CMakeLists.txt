@@ -30,8 +30,11 @@ add_library(duality_ui STATIC
     widgets/WaterfallWidget.cpp
 
     # Control panels
+    panels/ICaptureControls.h
     panels/CapturePanel.h
     panels/CapturePanel.cpp
+    panels/CaptureControlPanel.h
+    panels/CaptureControlPanel.cpp
     panels/TransmitPanel.h
     panels/TransmitPanel.cpp
     panels/PlaybackPanel.h
@@ -44,6 +47,8 @@ add_library(duality_ui STATIC
     # Program screens
     programs/FobProgram.h
     programs/FobProgram.cpp
+    programs/CaptureProgram.h
+    programs/CaptureProgram.cpp
     programs/DevicesProgram.h
     programs/DevicesProgram.cpp
     programs/JamProgram.h
