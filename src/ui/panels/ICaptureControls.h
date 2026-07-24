@@ -21,6 +21,9 @@ public:
     virtual double hangTimeMs() const = 0;
     // Replay mode is a FOB-only feature; the CAPTURE program returns false.
     virtual bool replayMode() const = 0;
+    // Whether concurrent TX should be dropped after replay mode's second
+    // capture. FOB-only; other programs keep the default (true).
+    virtual bool disableTxAfterCapture() const { return true; }
 
     // Whether the live monitor should run peak detection. Defaults on; the
     // LOOKING program exposes it as a checkbox.

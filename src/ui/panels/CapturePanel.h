@@ -5,7 +5,7 @@
 
 #include <QWidget>
 
-class QComboBox;
+class QCheckBox;
 class QDoubleSpinBox;
 class QLabel;
 class QPushButton;
@@ -20,6 +20,7 @@ public:
     explicit CapturePanel(QWidget *parent = nullptr);
 
     StreamParams streamParams() const override;
+    // The FOB only runs the auto trigger, so this always returns "auto".
     QString trigger() const override;
     double peakThresholdDb() const override;
     // ± capture range (half-width) in Hz, used for the spectrum overlay and to
@@ -28,9 +29,13 @@ public:
     // How long an auto segment stays open after the signal drops below
     // threshold, bridging modulation gaps so one transmission is not split.
     double hangTimeMs() const override;
-    // Replay mode: capture two auto segments, then drop concurrent TX, switch
-    // to monitor and replay the first. Forces (and locks) the trigger to auto.
+    // Replay mode: capture two auto segments, then (optionally) drop concurrent
+    // TX, switch to monitor and replay the first. When off, keep capturing
+    // segments until the user stops.
     bool replayMode() const override;
+    // Whether the concurrent TX is dropped after replay mode's second capture.
+    // On by default; unchecking leaves the TX running through the replay.
+    bool disableTxAfterCapture() const override;
 
     void setRunning(bool running) override;
     // Reflects the CONCURRENT TX enable state (owned by the transmit panel) in
@@ -54,8 +59,8 @@ private:
     QDoubleSpinBox *m_peakThreshold;
     QDoubleSpinBox *m_captureRange;
     QDoubleSpinBox *m_hangTime;
-    QComboBox *m_trigger;
-    QPushButton *m_replayMode;
+    QCheckBox *m_replayMode;
+    QCheckBox *m_disableTxAfterCapture;
     QLabel *m_txIndicator;
     QPushButton *m_monitorButton;
     QPushButton *m_recordButton;

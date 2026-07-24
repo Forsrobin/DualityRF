@@ -549,6 +549,7 @@ void MainWindow::startCapture(bool record) {
   // the switch to monitor-and-replay. FOB-only feature.
   m_replayActive =
       record && autoMode && m_activeAllowTx && m_activeCapture->replayMode();
+  m_disableTxAfterReplay = m_activeCapture->disableTxAfterCapture();
   m_replaySegmentCount = 0;
   m_replayFirstPath.clear();
   m_activeCapture->setRunning(true);
@@ -645,12 +646,15 @@ void MainWindow::onAutoSegmentSaved(const RecordingMetadata &meta) {
 void MainWindow::enterReplayMonitor() {
   m_replayActive = false;
 
-  // Drop the concurrent TX noise (and reflect it in the panel). Unticking
-  // while the capture is live stops the stream via onTransmitToggled; the
-  // extra stop() covers the case where it was never enabled.
-  if (m_transmitPanel->transmitEnabled())
-    m_transmitPanel->setTransmitEnabled(false);
-  m_transmit.stop();
+  // Drop the concurrent TX noise (and reflect it in the panel), unless the
+  // user asked to keep it running through the replay. Unticking while the
+  // capture is live stops the stream via onTransmitToggled; the extra stop()
+  // covers the case where it was never enabled.
+  if (m_disableTxAfterReplay) {
+    if (m_transmitPanel->transmitEnabled())
+      m_transmitPanel->setTransmitEnabled(false);
+    m_transmit.stop();
+  }
 
   // Leave segment capture: the pipeline keeps receiving, now a plain monitor.
   m_autoActive = false;

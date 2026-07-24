@@ -137,8 +137,11 @@ private:
     static constexpr auto kAutoPostPad = std::chrono::milliseconds(100);
     static constexpr auto kAutoMinSegment = std::chrono::milliseconds(150);
 
-    // Replay-mode session state (armed by the panel's REPLAY MODE button).
+    // Replay-mode session state (armed by the panel's "Replay mode" checkbox).
     bool m_replayActive = false;
+    // Whether the concurrent TX is dropped once the second segment is captured
+    // (the panel's "Disable TX after capture" checkbox). Latched at start.
+    bool m_disableTxAfterReplay = true;
     int m_replaySegmentCount = 0;
     RecordingMetadata m_replayFirstMeta;
     QString m_replayFirstPath;
