@@ -70,6 +70,11 @@ MainWindow::MainWindow()
   m_home = new HomePage(this);
   m_stack->addWidget(m_home);
   connect(m_home, &HomePage::exitRequested, qApp, &QApplication::quit);
+  // The home top bar mirrors the program screens' device badges (no back arrow).
+  connect(m_home, &HomePage::txClicked, this,
+          [this] { openDevices(DeviceFocus::Tx); });
+  connect(m_home, &HomePage::rxClicked, this,
+          [this] { openDevices(DeviceFocus::Rx); });
   connect(m_home, &HomePage::programActivated, this, [this](int index) {
     const int target = index + 1; // stack index (home is 0)
     // The device selector and session manager use history-aware navigation;
@@ -442,6 +447,8 @@ void MainWindow::refreshDeviceBadges() {
   const auto tx = m_devicesProgram->selectedTx();
   const QString rxName = rx ? rx->displayName() : QString();
   const QString txName = tx ? tx->displayName() : QString();
+  m_home->setRxName(rxName);
+  m_home->setTxName(txName);
   for (ProgramScreen *screen : m_programScreens) {
     screen->setRxName(rxName);
     screen->setTxName(txName);

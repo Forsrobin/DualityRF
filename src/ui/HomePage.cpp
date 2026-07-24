@@ -1,6 +1,7 @@
 #include "ui/HomePage.h"
 
 #include "core/Version.h"
+#include "ui/components/DeviceBadge.h"
 
 #include <QDateTime>
 #include <QGridLayout>
@@ -20,10 +21,31 @@ HomePage::HomePage(QWidget *parent)
     : QWidget(parent)
     , m_grid(new QGridLayout)
     , m_clock(new QLabel(this))
+    , m_txBadge(new DeviceBadge(QStringLiteral("TX"), QStringLiteral("#c0392b"),
+                                this))
+    , m_rxBadge(new DeviceBadge(QStringLiteral("RX"), QStringLiteral("#2c6fbf"),
+                                this))
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
+
+    // Slim top bar matching the program screens (but with no back arrow): the
+    // selected TX/RX device badges on the right, above the logo header.
+    auto *topBar = new QWidget(this);
+    topBar->setObjectName(QStringLiteral("homeTopBar"));
+    topBar->setFixedHeight(30);
+    topBar->setStyleSheet(
+        QStringLiteral("#homeTopBar { border-bottom: 1px solid #ffffff; }"));
+    auto *topRow = new QHBoxLayout(topBar);
+    topRow->setContentsMargins(4, 2, 6, 2);
+    topRow->setSpacing(6);
+    topRow->addStretch(1);
+    connect(m_txBadge, &DeviceBadge::clicked, this, &HomePage::txClicked);
+    connect(m_rxBadge, &DeviceBadge::clicked, this, &HomePage::rxClicked);
+    topRow->addWidget(m_txBadge);
+    topRow->addWidget(m_rxBadge);
+    root->addWidget(topBar);
 
     // Header band: logo + bold wordmark across the top, above the tiles.
     auto *header = new QWidget(this);
@@ -141,6 +163,16 @@ void HomePage::addExitTile()
 
     connect(tile, &QToolButton::clicked, this, &HomePage::exitRequested);
     placeTile(tile);
+}
+
+void HomePage::setTxName(const QString &name)
+{
+    m_txBadge->setDeviceName(name);
+}
+
+void HomePage::setRxName(const QString &name)
+{
+    m_rxBadge->setDeviceName(name);
 }
 
 } // namespace duality
