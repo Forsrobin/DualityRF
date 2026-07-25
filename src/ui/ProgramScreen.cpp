@@ -1,6 +1,7 @@
 #include "ui/ProgramScreen.h"
 
 #include "ui/components/DeviceBadge.h"
+#include "ui/components/ProgramInfo.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -12,6 +13,7 @@ namespace duality {
 ProgramScreen::ProgramScreen(const QString &title, QWidget *content,
                              QWidget *parent)
     : QWidget(parent)
+    , m_title(title)
 {
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
@@ -44,6 +46,11 @@ ProgramScreen::ProgramScreen(const QString &title, QWidget *content,
     auto *label = new QLabel(title, bar);
     label->setStyleSheet(QStringLiteral("font-weight: bold;"));
     barRow->addWidget(label);
+
+    // Optional per-program help, next to the title. Hidden until setInfo().
+    m_info = new ProgramInfo(bar);
+    barRow->addWidget(m_info);
+
     barRow->addStretch(1);
 
     // Selected device indicators on the right: red TX, blue RX. Tapping either
@@ -71,6 +78,11 @@ void ProgramScreen::setTxName(const QString &name)
 void ProgramScreen::setRxName(const QString &name)
 {
     m_rxBadge->setDeviceName(name);
+}
+
+void ProgramScreen::setInfo(const QString &title, const QString &body)
+{
+    m_info->setInfo(title.isEmpty() ? m_title : title, body);
 }
 
 } // namespace duality

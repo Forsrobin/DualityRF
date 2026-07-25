@@ -38,6 +38,7 @@ class SpectrumWidget;
 class ToastManager;
 class TransmitPanel;
 class JamProgram;
+class BeaconProgram;
 class WaterfallWidget;
 
 // Owns the application services (device manager, session store, pipelines)
@@ -98,6 +99,12 @@ private:
     void startJam();
     void stopJam();
 
+    // Standalone Beacon program: key the configured message as a looping CW
+    // Morse beacon and, when a receiver is selected, monitor it live into the
+    // program's FFT/waterfall (same pattern as the Jam program).
+    void startBeacon();
+    void stopBeacon();
+
     // Auto-capture: continuously records each in-band transmission to its own
     // trimmed file.
     enum class AutoPhase { WaitSignal, Recording, Finalizing };
@@ -116,6 +123,7 @@ private:
     std::unique_ptr<Session> m_session;
     SpectrumProcessor m_spectrumProcessor;
     SpectrumProcessor m_jamProcessor; // live spectrum for the Jam program monitor
+    SpectrumProcessor m_beaconProcessor; // live spectrum for the Beacon monitor
     PeakDetector m_peakDetector;
     StreamParams m_activeCaptureParams; // channel of the running capture
     bool m_monitorLive = false;
@@ -147,6 +155,7 @@ private:
     QString m_replayFirstPath;
     CapturePipeline m_capture;
     CapturePipeline m_jamMonitor; // RX monitor feeding the Jam program's viz
+    CapturePipeline m_beaconMonitor; // RX monitor feeding the Beacon's viz
     PlaybackPipeline m_playback;
     TransmitPipeline m_transmit;
 
@@ -165,6 +174,9 @@ private:
     JamProgram *m_jamProgram;
     QWidget *m_jamScreen = nullptr;    // back-bar wrapper around the Jam program
     bool m_jamActive = false;   // Jam program is transmitting
+    BeaconProgram *m_beaconProgram = nullptr;
+    QWidget *m_beaconScreen = nullptr; // back-bar wrapper around the Beacon
+    bool m_beaconActive = false;       // Beacon program is transmitting
     // App-wide device selector; the pipelines read its selection.
     DevicesProgram *m_devicesProgram;
     int m_devicesIndex = -1;        // stack index of the Devicees screen
