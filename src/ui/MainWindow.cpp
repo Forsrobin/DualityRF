@@ -44,6 +44,8 @@ constexpr qint64 kCacheMaxSamples = 2 * 1024 * 1024;
 // Pause after stopping concurrent TX before the replay grabs the transmitter,
 // so the TX stream fully stops and releases the device first.
 constexpr int kReplayTxSettleMs = 750;
+// Fixed TX gain used when replay mode transmits the auto capture.
+constexpr double kReplayTxGainDb = 38.0;
 // How long the in-app boot splash stays up before revealing the home grid.
 constexpr int kSplashMinimumMs = 1500;
 } // namespace
@@ -680,8 +682,11 @@ void MainWindow::enterReplayMonitor() {
   const QString sessionDir = m_session ? m_session->dir() : QString();
   QTimer::singleShot(kReplayTxSettleMs, this, [this, meta, path, sessionDir] {
     m_playbackPanel->select(sessionDir, meta.file);
-    startPlayback(path, m_playbackPanel->streamParams(), meta.format,
-                  m_playbackPanel->speed(), m_playbackPanel->repeat());
+    // Replay mode transmits the auto capture at a fixed TX gain.
+    StreamParams params = m_playbackPanel->streamParams();
+    params.gainDb = kReplayTxGainDb;
+    startPlayback(path, params, meta.format, m_playbackPanel->speed(),
+                  m_playbackPanel->repeat());
     m_toasts->show(tr("Replaying first capture: %1").arg(meta.file));
   });
 }

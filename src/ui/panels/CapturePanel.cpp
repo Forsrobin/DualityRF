@@ -39,7 +39,7 @@ CapturePanel::CapturePanel(QWidget *parent)
 {
     m_frequency->setRange(0.1, 7500.0);
     m_frequency->setDecimals(3);
-    m_frequency->setValue(433.8);
+    m_frequency->setValue(433.10);
     m_frequency->setSuffix(tr(" MHz"));
 
     m_sampleRate->setRange(0.1, 61.44);
@@ -67,14 +67,14 @@ CapturePanel::CapturePanel(QWidget *parent)
     m_captureRange->setRange(1.0, 5000.0);
     m_captureRange->setDecimals(1);
     m_captureRange->setSingleStep(10.0);
-    m_captureRange->setValue(50.0);
+    m_captureRange->setValue(40.0);
     m_captureRange->setPrefix(tr("± "));
     m_captureRange->setSuffix(tr(" kHz"));
 
     m_hangTime->setRange(50.0, 5000.0);
     m_hangTime->setDecimals(0);
     m_hangTime->setSingleStep(50.0);
-    m_hangTime->setValue(500.0);
+    m_hangTime->setValue(600.0);
     m_hangTime->setSuffix(tr(" ms"));
 
     // Yellow flags that replay mode will transmit.

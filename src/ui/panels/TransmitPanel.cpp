@@ -62,7 +62,7 @@ TransmitPanel::TransmitPanel(QWidget *parent)
 
     m_range->setRange(0.0, 30000.0);
     m_range->setDecimals(1);
-    m_range->setValue(50.0);
+    m_range->setValue(20.0);
     m_range->setSuffix(tr(" kHz"));
     m_range->setSpecialValueText(tr("full band"));
 
@@ -70,7 +70,7 @@ TransmitPanel::TransmitPanel(QWidget *parent)
 
     m_gain->setRange(0.0, 60.0);
     m_gain->setDecimals(1);
-    m_gain->setValue(20.0);
+    m_gain->setValue(28.0);
     m_gain->setSuffix(tr(" dB"));
 
     auto *fileRow = new QHBoxLayout;
