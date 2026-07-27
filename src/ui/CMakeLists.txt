@@ -22,6 +22,8 @@ add_library(duality_ui STATIC
     components/DeviceBadge.cpp
     components/ScanIndicator.h
     components/ScanIndicator.cpp
+    components/ProgramInfo.h
+    components/ProgramInfo.cpp
 
     # Visualization widgets
     widgets/SpectrumWidget.h
@@ -59,6 +61,8 @@ add_library(duality_ui STATIC
     programs/DevicesProgram.cpp
     programs/JamProgram.h
     programs/JamProgram.cpp
+    programs/BeaconProgram.h
+    programs/BeaconProgram.cpp
     programs/DebugProgram.h
     programs/DebugProgram.cpp
     programs/InfoProgram.h

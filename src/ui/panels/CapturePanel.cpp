@@ -1,8 +1,9 @@
 #include "ui/panels/CapturePanel.h"
 
-#include <QComboBox>
+#include <QCheckBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -29,8 +30,8 @@ CapturePanel::CapturePanel(QWidget *parent)
     , m_peakThreshold(new QDoubleSpinBox(this))
     , m_captureRange(new QDoubleSpinBox(this))
     , m_hangTime(new QDoubleSpinBox(this))
-    , m_trigger(new QComboBox(this))
-    , m_replayMode(new QPushButton(tr("REPLAY MODE"), this))
+    , m_replayMode(new QCheckBox(tr("Replay mode"), this))
+    , m_disableTxAfterCapture(new QCheckBox(tr("Disable TX after capture"), this))
     , m_txIndicator(new QLabel(tr("TX"), this))
     , m_monitorButton(new QPushButton(tr("MONITOR"), this))
     , m_recordButton(new QPushButton(tr("RECORD"), this))
@@ -38,7 +39,7 @@ CapturePanel::CapturePanel(QWidget *parent)
 {
     m_frequency->setRange(0.1, 7500.0);
     m_frequency->setDecimals(3);
-    m_frequency->setValue(433.8);
+    m_frequency->setValue(433.10);
     m_frequency->setSuffix(tr(" MHz"));
 
     m_sampleRate->setRange(0.1, 61.44);
@@ -66,45 +67,51 @@ CapturePanel::CapturePanel(QWidget *parent)
     m_captureRange->setRange(1.0, 5000.0);
     m_captureRange->setDecimals(1);
     m_captureRange->setSingleStep(10.0);
-    m_captureRange->setValue(50.0);
+    m_captureRange->setValue(40.0);
     m_captureRange->setPrefix(tr("± "));
     m_captureRange->setSuffix(tr(" kHz"));
 
     m_hangTime->setRange(50.0, 5000.0);
     m_hangTime->setDecimals(0);
     m_hangTime->setSingleStep(50.0);
-    m_hangTime->setValue(500.0);
+    m_hangTime->setValue(600.0);
     m_hangTime->setSuffix(tr(" ms"));
 
-    m_trigger->addItems({tr("manual"), tr("auto")});
+    // Yellow flags that replay mode will transmit.
+    m_replayMode->setStyleSheet(
+        QStringLiteral("QCheckBox { color:#f5c400; font-weight:bold; }"));
 
-    m_replayMode->setCheckable(true);
-    // Yellow flags that replay mode will transmit; the active state is a
-    // filled, bold, white-bordered button vs. the muted outline when off.
-    m_replayMode->setStyleSheet(QStringLiteral(
-        "QPushButton { background:#4d4000; color:#f5c400; "
-        "border:1px solid #f5c400; }"
-        "QPushButton:checked { background:#f5c400; color:#000000; "
-        "border:2px solid #ffffff; font-weight:bold; }"));
+    // On by default: the concurrent TX is dropped once the second segment is
+    // captured (only takes effect while replay mode is armed).
+    m_disableTxAfterCapture->setChecked(true);
 
-    // Small "TX" lamp shown next to REPLAY MODE; lit when concurrent TX is on.
+    // Small "TX" lamp reflecting the concurrent-TX enable state; lit when on.
     m_txIndicator->setAlignment(Qt::AlignCenter);
     setConcurrentTxEnabled(false);
 
-    // Replay mode sits beside its concurrent-TX indicator.
-    auto *replayRow = new QHBoxLayout;
-    replayRow->addWidget(m_replayMode, 1);
-    replayRow->addWidget(m_txIndicator);
+    // Concurrent-TX status lamp sits beside its label, left-aligned so the tiny
+    // lamp does not stretch across the row.
+    auto *txRow = new QHBoxLayout;
+    txRow->addWidget(m_txIndicator);
+    txRow->addStretch(1);
 
     auto *layout = new QFormLayout(this);
     layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    // Trigger and the arming buttons up top so they stay in view without
-    // scrolling the form.
-    layout->addRow(tr("Trigger"), m_trigger);
+    // The arming buttons up top so they stay in view without scrolling the form.
     layout->addRow(m_monitorButton);
     layout->addRow(m_recordButton);
     layout->addRow(m_stopButton);
-    layout->addRow(replayRow);
+    layout->addRow(tr("Concurrent TX"), txRow);
+    layout->addRow(m_replayMode);
+    layout->addRow(m_disableTxAfterCapture);
+    // Separator between the arming controls and the tuning inputs below.
+    auto *divider = new QFrame(this);
+    divider->setFrameShape(QFrame::HLine);
+    divider->setFrameShadow(QFrame::Sunken);
+    layout->addRow(divider);
+    auto *settingsLabel = new QLabel(tr("Settings"), this);
+    settingsLabel->setStyleSheet(QStringLiteral("font-weight:bold;"));
+    layout->addRow(settingsLabel);
     layout->addRow(tr("Frequency"), m_frequency);
     layout->addRow(tr("Sample rate"), m_sampleRate);
     layout->addRow(tr("Bandwidth"), m_bandwidth);
@@ -125,13 +132,6 @@ CapturePanel::CapturePanel(QWidget *parent)
                 &CapturePanel::paramsChanged);
     connect(m_peakThreshold, &QDoubleSpinBox::valueChanged, this,
             &CapturePanel::peakThresholdChanged);
-    // Replay mode only makes sense with the auto trigger, so force it to auto
-    // and lock the selector while enabled.
-    connect(m_replayMode, &QPushButton::toggled, this, [this](bool on) {
-        if (on)
-            m_trigger->setCurrentText(QStringLiteral("auto"));
-        m_trigger->setEnabled(!on);
-    });
 
     // Restore the last used values, then persist every edit.
     QSettings settings;
@@ -168,7 +168,8 @@ StreamParams CapturePanel::streamParams() const
 
 QString CapturePanel::trigger() const
 {
-    return m_trigger->currentText();
+    // The FOB only runs the auto trigger.
+    return QStringLiteral("auto");
 }
 
 double CapturePanel::peakThresholdDb() const
@@ -189,6 +190,11 @@ double CapturePanel::hangTimeMs() const
 bool CapturePanel::replayMode() const
 {
     return m_replayMode->isChecked();
+}
+
+bool CapturePanel::disableTxAfterCapture() const
+{
+    return m_disableTxAfterCapture->isChecked();
 }
 
 void CapturePanel::setRunning(bool running)

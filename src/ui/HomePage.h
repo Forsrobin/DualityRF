@@ -8,9 +8,12 @@ class QToolButton;
 
 namespace duality {
 
-// The launcher screen: a header band with the logo and "DualityRF" wordmark,
-// a 3-column grid of program tiles (icon over label) below it, and a slim
-// footer showing the app version (left) and the wall-clock time (right).
+class DeviceBadge;
+
+// The launcher screen: a top bar with the logo and "DualityRF" wordmark plus
+// the selected TX/RX device badges (like the program screens, but with no back
+// button), a 3-column grid of program tiles (icon over label) below it, and a
+// slim footer showing the app version (left) and the wall-clock time (right).
 // Register programs with addProgram(); each tile emits programActivated()
 // with its registration index.
 class HomePage : public QWidget {
@@ -23,9 +26,17 @@ public:
     void addProgram(const QString &name, const QString &iconPath);
     void addExitTile();
 
+    // Update the device names shown in the top-bar badges (empty = none).
+    void setTxName(const QString &name);
+    void setRxName(const QString &name);
+
 signals:
     void programActivated(int index);
     void exitRequested();
+    // Emitted when the respective device badge is tapped, so the shell can open
+    // the device selector.
+    void txClicked();
+    void rxClicked();
 
 private:
     // Builds a grid tile with the shared geometry so program tiles and the EXIT
@@ -36,6 +47,8 @@ private:
 
     QGridLayout *m_grid;
     QLabel *m_clock;
+    DeviceBadge *m_txBadge;
+    DeviceBadge *m_rxBadge;
     int m_count = 0;
 
     static constexpr int kColumns = 3;

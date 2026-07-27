@@ -21,6 +21,7 @@
 #include "ui/programs/FobProgram.h"
 #include "ui/programs/InfoProgram.h"
 #include "ui/programs/JamProgram.h"
+#include "ui/programs/BeaconProgram.h"
 #include "ui/programs/LookingProgram.h"
 #include "ui/programs/SessionsProgram.h"
 
@@ -44,12 +45,15 @@ constexpr qint64 kCacheMaxSamples = 2 * 1024 * 1024;
 // Pause after stopping concurrent TX before the replay grabs the transmitter,
 // so the TX stream fully stops and releases the device first.
 constexpr int kReplayTxSettleMs = 750;
+// Fixed TX gain used when replay mode transmits the auto capture.
+constexpr double kReplayTxGainDb = 38.0;
 // How long the in-app boot splash stays up before revealing the home grid.
 constexpr int kSplashMinimumMs = 1500;
 } // namespace
 
 MainWindow::MainWindow()
-    : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor) {
+    : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor),
+      m_beaconMonitor(&m_beaconProcessor) {
   setWindowTitle(QStringLiteral("DUALITY RF"));
 
   // Fixed 320x480 portrait popout: not resizable. Equal min/max size is also
@@ -70,6 +74,11 @@ MainWindow::MainWindow()
   m_home = new HomePage(this);
   m_stack->addWidget(m_home);
   connect(m_home, &HomePage::exitRequested, qApp, &QApplication::quit);
+  // The home top bar mirrors the program screens' device badges (no back arrow).
+  connect(m_home, &HomePage::txClicked, this,
+          [this] { openDevices(DeviceFocus::Tx); });
+  connect(m_home, &HomePage::rxClicked, this,
+          [this] { openDevices(DeviceFocus::Rx); });
   connect(m_home, &HomePage::programActivated, this, [this](int index) {
     const int target = index + 1; // stack index (home is 0)
     // The device selector and session manager use history-aware navigation;
@@ -144,6 +153,11 @@ MainWindow::MainWindow()
   m_jamProgram = new JamProgram(this);
   m_jamScreen = addProgram(tr("JAM"), QStringLiteral(":/assets/jam.png"),
                            m_jamProgram);
+  m_beaconProgram = new BeaconProgram(this);
+  ProgramScreen *beaconScreen = addProgram(
+      tr("BEACON"), QStringLiteral(":/assets/beacon.png"), m_beaconProgram);
+  beaconScreen->setInfo(tr("BEACON"), BeaconProgram::infoText());
+  m_beaconScreen = beaconScreen;
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugProgram);
   addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
@@ -164,6 +178,9 @@ MainWindow::MainWindow()
     // Leaving the Jam screen stops its transmission so it can't run unseen.
     if (m_jamActive && m_stack->currentWidget() != m_jamScreen)
       stopJam();
+    // Same for the Beacon: never leave a transmitter keying off-screen.
+    if (m_beaconActive && m_stack->currentWidget() != m_beaconScreen)
+      stopBeacon();
   });
 
   // Boot splash lives in the stack too; show it first, then reveal the home
@@ -386,6 +403,16 @@ MainWindow::MainWindow()
   connect(&m_jamMonitor, &CapturePipeline::errorOccurred, this,
           [this](const QString &msg) { statusBar()->showMessage(msg); });
 
+  // Standalone Beacon program (mirrors the Jam wiring on its own pipelines).
+  connect(m_beaconProgram, &BeaconProgram::startRequested, this,
+          &MainWindow::startBeacon);
+  connect(m_beaconProgram, &BeaconProgram::stopRequested, this,
+          &MainWindow::stopBeacon);
+  connect(&m_beaconProcessor, &SpectrumProcessor::spectrumReady, m_beaconProgram,
+          &BeaconProgram::pushSpectrum);
+  connect(&m_beaconMonitor, &CapturePipeline::errorOccurred, this,
+          [this](const QString &msg) { statusBar()->showMessage(msg); });
+
   m_deviceManager.rescan();
   updateCaptureRangeOverlay();
 }
@@ -393,6 +420,7 @@ MainWindow::MainWindow()
 MainWindow::~MainWindow() {
   m_capture.stop();
   m_jamMonitor.stop();
+  m_beaconMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
 }
@@ -442,6 +470,8 @@ void MainWindow::refreshDeviceBadges() {
   const auto tx = m_devicesProgram->selectedTx();
   const QString rxName = rx ? rx->displayName() : QString();
   const QString txName = tx ? tx->displayName() : QString();
+  m_home->setRxName(rxName);
+  m_home->setTxName(txName);
   for (ProgramScreen *screen : m_programScreens) {
     screen->setRxName(rxName);
     screen->setTxName(txName);
@@ -549,6 +579,7 @@ void MainWindow::startCapture(bool record) {
   // the switch to monitor-and-replay. FOB-only feature.
   m_replayActive =
       record && autoMode && m_activeAllowTx && m_activeCapture->replayMode();
+  m_disableTxAfterReplay = m_activeCapture->disableTxAfterCapture();
   m_replaySegmentCount = 0;
   m_replayFirstPath.clear();
   m_activeCapture->setRunning(true);
@@ -645,12 +676,15 @@ void MainWindow::onAutoSegmentSaved(const RecordingMetadata &meta) {
 void MainWindow::enterReplayMonitor() {
   m_replayActive = false;
 
-  // Drop the concurrent TX noise (and reflect it in the panel). Unticking
-  // while the capture is live stops the stream via onTransmitToggled; the
-  // extra stop() covers the case where it was never enabled.
-  if (m_transmitPanel->transmitEnabled())
-    m_transmitPanel->setTransmitEnabled(false);
-  m_transmit.stop();
+  // Drop the concurrent TX noise (and reflect it in the panel), unless the
+  // user asked to keep it running through the replay. Unticking while the
+  // capture is live stops the stream via onTransmitToggled; the extra stop()
+  // covers the case where it was never enabled.
+  if (m_disableTxAfterReplay) {
+    if (m_transmitPanel->transmitEnabled())
+      m_transmitPanel->setTransmitEnabled(false);
+    m_transmit.stop();
+  }
 
   // Leave segment capture: the pipeline keeps receiving, now a plain monitor.
   m_autoActive = false;
@@ -669,8 +703,11 @@ void MainWindow::enterReplayMonitor() {
   const QString sessionDir = m_session ? m_session->dir() : QString();
   QTimer::singleShot(kReplayTxSettleMs, this, [this, meta, path, sessionDir] {
     m_playbackPanel->select(sessionDir, meta.file);
-    startPlayback(path, m_playbackPanel->streamParams(), meta.format,
-                  m_playbackPanel->speed(), m_playbackPanel->repeat());
+    // Replay mode transmits the auto capture at a fixed TX gain.
+    StreamParams params = m_playbackPanel->streamParams();
+    params.gainDb = kReplayTxGainDb;
+    startPlayback(path, params, meta.format, m_playbackPanel->speed(),
+                  m_playbackPanel->repeat());
     m_toasts->show(tr("Replaying first capture: %1").arg(meta.file));
   });
 }
@@ -757,6 +794,51 @@ void MainWindow::stopJam() {
   m_jamActive = false;
   m_jamProgram->setRunning(false);
   statusBar()->showMessage(tr("TX stopped"));
+}
+
+void MainWindow::startBeacon() {
+  const auto txInfo = m_devicesProgram->selectedTx();
+  if (!txInfo) {
+    statusBar()->showMessage(tr("Select a transmitter first"));
+    m_beaconProgram->setRunning(false);
+    return;
+  }
+  auto txDevice = m_deviceManager.open(*txInfo);
+  if (!txDevice) {
+    statusBar()->showMessage(tr("Cannot open %1").arg(txInfo->displayName()));
+    m_beaconProgram->setRunning(false);
+    return;
+  }
+
+  const StreamParams params = m_beaconProgram->streamParams();
+  if (!m_transmit.start(std::move(txDevice), params,
+                        m_beaconProgram->waveformConfig())) {
+    m_beaconProgram->setRunning(false);
+    return;
+  }
+
+  // Optionally monitor the channel on the receiver so the FFT/waterfall show
+  // the keyed CW live; the tone overlay stays even when no receiver is set.
+  if (const auto rxInfo = m_devicesProgram->selectedRx()) {
+    if (auto rxDevice = m_deviceManager.open(*rxInfo)) {
+      CapturePipeline::Plan plan;
+      plan.params = params; // monitor only (no output path)
+      m_beaconMonitor.start(std::move(rxDevice), plan);
+    }
+  }
+
+  m_beaconActive = true;
+  m_beaconProgram->setRunning(true);
+  statusBar()->showMessage(tr("Beacon keying %1 MHz")
+                               .arg(params.frequencyHz / 1e6, 0, 'f', 3));
+}
+
+void MainWindow::stopBeacon() {
+  m_transmit.stop();
+  m_beaconMonitor.stop();
+  m_beaconActive = false;
+  m_beaconProgram->setRunning(false);
+  statusBar()->showMessage(tr("Beacon stopped"));
 }
 
 void MainWindow::stopCapture() {
@@ -871,6 +953,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   // Fixed-size popout: no geometry/state to persist.
   m_capture.stop();
   m_jamMonitor.stop();
+  m_beaconMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
   QMainWindow::closeEvent(event);
