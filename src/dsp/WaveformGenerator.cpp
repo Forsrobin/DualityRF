@@ -5,6 +5,7 @@
 #include <numbers>
 #include <optional>
 #include <random>
+#include <string>
 
 namespace duality {
 
@@ -172,6 +173,130 @@ private:
     std::size_t m_pos = 0;
 };
 
+// International Morse for the characters a beacon message needs: the letters,
+// digits and the handful of punctuation marks used in callsigns and CQ calls.
+// '.' is a dit (1 unit), '-' a dah (3 units); anything not listed is skipped.
+const char *morseCode(char c)
+{
+    switch (c) {
+    case 'A': return ".-";    case 'B': return "-...";  case 'C': return "-.-.";
+    case 'D': return "-..";   case 'E': return ".";     case 'F': return "..-.";
+    case 'G': return "--.";   case 'H': return "....";  case 'I': return "..";
+    case 'J': return ".---";  case 'K': return "-.-";   case 'L': return ".-..";
+    case 'M': return "--";    case 'N': return "-.";    case 'O': return "---";
+    case 'P': return ".--.";  case 'Q': return "--.-";  case 'R': return ".-.";
+    case 'S': return "...";   case 'T': return "-";     case 'U': return "..-";
+    case 'V': return "...-";  case 'W': return ".--";   case 'X': return "-..-";
+    case 'Y': return "-.--";  case 'Z': return "--..";
+    case '0': return "-----"; case '1': return ".----"; case '2': return "..---";
+    case '3': return "...--"; case '4': return "....-"; case '5': return ".....";
+    case '6': return "-....";  case '7': return "--..."; case '8': return "---..";
+    case '9': return "----.";
+    case '.': return ".-.-.-"; case ',': return "--..--"; case '?': return "..--..";
+    case '/': return "-..-.";  case '=': return "-...-";  case '+': return ".-.-.";
+    case '-': return "-....-"; case '@': return ".--.-.";
+    default: return "";
+    }
+}
+
+// Keys a CW tone into International Morse. The message is compiled once into a
+// schedule of key-on / key-off runs (in samples) at the PARIS timing derived
+// from the WPM; generate() walks that schedule, looping forever so it works as
+// a beacon. Each key-on run is shaped with a raised-cosine rise/fall so the
+// transmitted envelope has no hard edges — that keeps the keyed spectrum tight
+// and free of the "key clicks" a bare on/off gate would splatter either side.
+class MorseGen final : public IWaveformGenerator {
+public:
+    MorseGen(float amplitude, double toneHz, double wpm, const QString &text,
+             double sampleRateHz)
+        : m_amplitude(amplitude), m_nco(toneHz, sampleRateHz)
+    {
+        // PARIS standard: one dit = 1.2 s / WPM. Guard against nonsense input.
+        const double unit = 1.2 / std::max(wpm, 1.0);
+        const auto units = [&](int n) {
+            return std::max<std::size_t>(
+                1, static_cast<std::size_t>(unit * n * sampleRateHz));
+        };
+        // Click-suppression ramp: ~4 ms, but never more than half a dit so
+        // even fast keying still reaches full amplitude.
+        m_ramp = static_cast<std::size_t>(0.004 * sampleRateHz);
+
+        const std::string msg = text.toUpper().toStdString();
+        bool prevWasChar = false;
+        bool pendingWordGap = false;
+        for (char c : msg) {
+            if (c == ' ') {
+                if (prevWasChar)
+                    pendingWordGap = true;
+                continue;
+            }
+            const char *code = morseCode(c);
+            if (*code == '\0')
+                continue;
+            if (prevWasChar) // gap since the previous character
+                m_segments.push_back({false, units(pendingWordGap ? 7 : 3)});
+            pendingWordGap = false;
+            for (int i = 0; code[i] != '\0'; ++i) {
+                if (i > 0) // intra-character (element) gap
+                    m_segments.push_back({false, units(1)});
+                m_segments.push_back({true, units(code[i] == '-' ? 3 : 1)});
+            }
+            prevWasChar = true;
+        }
+        // Trailing word gap so the looping beacon breathes between repeats;
+        // an empty/uncodable message becomes plain silence.
+        m_segments.push_back({false, units(prevWasChar ? 7 : 1)});
+    }
+
+    void generate(std::span<Complex> dst) override
+    {
+        for (auto &s : dst) {
+            const Segment &seg = m_segments[m_seg];
+            // The tone runs continuously (phase stays coherent across dits);
+            // the envelope gates and shapes it.
+            const Complex tone = m_nco.next();
+            float env = 0.0f;
+            if (seg.keyOn) {
+                const std::size_t r = std::min(m_ramp, seg.samples / 2);
+                if (r == 0)
+                    env = 1.0f;
+                else if (m_pos < r)
+                    env = raisedCosine(m_pos, r);
+                else if (m_pos >= seg.samples - r)
+                    env = raisedCosine(seg.samples - 1 - m_pos, r);
+                else
+                    env = 1.0f;
+            }
+            s = (m_amplitude * env) * tone;
+
+            if (++m_pos >= seg.samples) {
+                m_pos = 0;
+                if (++m_seg >= m_segments.size())
+                    m_seg = 0; // loop the beacon
+            }
+        }
+    }
+
+private:
+    struct Segment {
+        bool keyOn;
+        std::size_t samples;
+    };
+    // Half-cosine rise from 0→1 over `r` samples (edge of a keyed element).
+    static float raisedCosine(std::size_t pos, std::size_t r)
+    {
+        const double x = static_cast<double>(pos) / static_cast<double>(r);
+        return static_cast<float>(0.5 - 0.5 * std::cos(std::numbers::pi * x));
+    }
+
+    float m_amplitude;
+    Nco m_nco;
+    std::size_t m_ramp = 0;
+    std::vector<Segment> m_segments;
+    std::size_t m_seg = 0;
+    std::size_t m_pos = 0;
+};
+
 // Band-limits a source to `rangeHz` and shifts it to `offsetHz`, so noise
 // occupies [carrier + offset − range/2, carrier + offset + range/2].
 class ShapedGen final : public IWaveformGenerator {
@@ -231,6 +356,9 @@ makeWaveformGenerator(const WaveformConfig &config, double sampleRateHz,
     case WaveformType::ContinuousWave:
     case WaveformType::Sine:
         return std::make_unique<ToneGen>(amp, config.offsetHz, sampleRateHz);
+    case WaveformType::Morse:
+        return std::make_unique<MorseGen>(amp, config.offsetHz, config.wpm,
+                                          config.text, sampleRateHz);
     case WaveformType::IqFile:
         base = std::make_unique<LoopedVectorGen>(std::move(fileSamples), amp);
         break;
@@ -251,8 +379,32 @@ const char *waveformName(WaveformType type)
     case WaveformType::ContinuousWave: return "Continuous wave";
     case WaveformType::Sine: return "Sine (offset)";
     case WaveformType::IqFile: return "IQ file";
+    case WaveformType::Morse: return "CW beacon (Morse)";
     }
     return "?";
+}
+
+QString morsePreview(const QString &text)
+{
+    QString out;
+    bool prevWasChar = false;
+    bool pendingWordGap = false;
+    for (char c : text.toUpper().toStdString()) {
+        if (c == ' ') {
+            if (prevWasChar)
+                pendingWordGap = true;
+            continue;
+        }
+        const char *code = morseCode(c);
+        if (*code == '\0')
+            continue;
+        if (prevWasChar)
+            out += pendingWordGap ? QStringLiteral(" / ") : QStringLiteral(" ");
+        pendingWordGap = false;
+        out += QString::fromLatin1(code);
+        prevWasChar = true;
+    }
+    return out;
 }
 
 QString WaveformConfig::describe() const
@@ -267,6 +419,8 @@ QString WaveformConfig::describe() const
         s += QStringLiteral(" range=%1 kHz").arg(rangeHz / 1e3);
     if (type == WaveformType::IqFile)
         s += ' ' + filePath;
+    if (type == WaveformType::Morse)
+        s += QStringLiteral(" %1 wpm \"%2\"").arg(wpm).arg(text);
     return s;
 }
 

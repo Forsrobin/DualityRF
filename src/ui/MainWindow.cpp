@@ -21,6 +21,7 @@
 #include "ui/programs/FobProgram.h"
 #include "ui/programs/InfoProgram.h"
 #include "ui/programs/JamProgram.h"
+#include "ui/programs/BeaconProgram.h"
 #include "ui/programs/LookingProgram.h"
 #include "ui/programs/SessionsProgram.h"
 
@@ -51,7 +52,8 @@ constexpr int kSplashMinimumMs = 1500;
 } // namespace
 
 MainWindow::MainWindow()
-    : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor) {
+    : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor),
+      m_beaconMonitor(&m_beaconProcessor) {
   setWindowTitle(QStringLiteral("DUALITY RF"));
 
   // Fixed 320x480 portrait popout: not resizable. Equal min/max size is also
@@ -151,6 +153,11 @@ MainWindow::MainWindow()
   m_jamProgram = new JamProgram(this);
   m_jamScreen = addProgram(tr("JAM"), QStringLiteral(":/assets/jam.png"),
                            m_jamProgram);
+  m_beaconProgram = new BeaconProgram(this);
+  ProgramScreen *beaconScreen = addProgram(
+      tr("BEACON"), QStringLiteral(":/assets/beacon.png"), m_beaconProgram);
+  beaconScreen->setInfo(tr("BEACON"), BeaconProgram::infoText());
+  m_beaconScreen = beaconScreen;
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugProgram);
   addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
@@ -171,6 +178,9 @@ MainWindow::MainWindow()
     // Leaving the Jam screen stops its transmission so it can't run unseen.
     if (m_jamActive && m_stack->currentWidget() != m_jamScreen)
       stopJam();
+    // Same for the Beacon: never leave a transmitter keying off-screen.
+    if (m_beaconActive && m_stack->currentWidget() != m_beaconScreen)
+      stopBeacon();
   });
 
   // Boot splash lives in the stack too; show it first, then reveal the home
@@ -393,6 +403,16 @@ MainWindow::MainWindow()
   connect(&m_jamMonitor, &CapturePipeline::errorOccurred, this,
           [this](const QString &msg) { statusBar()->showMessage(msg); });
 
+  // Standalone Beacon program (mirrors the Jam wiring on its own pipelines).
+  connect(m_beaconProgram, &BeaconProgram::startRequested, this,
+          &MainWindow::startBeacon);
+  connect(m_beaconProgram, &BeaconProgram::stopRequested, this,
+          &MainWindow::stopBeacon);
+  connect(&m_beaconProcessor, &SpectrumProcessor::spectrumReady, m_beaconProgram,
+          &BeaconProgram::pushSpectrum);
+  connect(&m_beaconMonitor, &CapturePipeline::errorOccurred, this,
+          [this](const QString &msg) { statusBar()->showMessage(msg); });
+
   m_deviceManager.rescan();
   updateCaptureRangeOverlay();
 }
@@ -400,6 +420,7 @@ MainWindow::MainWindow()
 MainWindow::~MainWindow() {
   m_capture.stop();
   m_jamMonitor.stop();
+  m_beaconMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
 }
@@ -775,6 +796,51 @@ void MainWindow::stopJam() {
   statusBar()->showMessage(tr("TX stopped"));
 }
 
+void MainWindow::startBeacon() {
+  const auto txInfo = m_devicesProgram->selectedTx();
+  if (!txInfo) {
+    statusBar()->showMessage(tr("Select a transmitter first"));
+    m_beaconProgram->setRunning(false);
+    return;
+  }
+  auto txDevice = m_deviceManager.open(*txInfo);
+  if (!txDevice) {
+    statusBar()->showMessage(tr("Cannot open %1").arg(txInfo->displayName()));
+    m_beaconProgram->setRunning(false);
+    return;
+  }
+
+  const StreamParams params = m_beaconProgram->streamParams();
+  if (!m_transmit.start(std::move(txDevice), params,
+                        m_beaconProgram->waveformConfig())) {
+    m_beaconProgram->setRunning(false);
+    return;
+  }
+
+  // Optionally monitor the channel on the receiver so the FFT/waterfall show
+  // the keyed CW live; the tone overlay stays even when no receiver is set.
+  if (const auto rxInfo = m_devicesProgram->selectedRx()) {
+    if (auto rxDevice = m_deviceManager.open(*rxInfo)) {
+      CapturePipeline::Plan plan;
+      plan.params = params; // monitor only (no output path)
+      m_beaconMonitor.start(std::move(rxDevice), plan);
+    }
+  }
+
+  m_beaconActive = true;
+  m_beaconProgram->setRunning(true);
+  statusBar()->showMessage(tr("Beacon keying %1 MHz")
+                               .arg(params.frequencyHz / 1e6, 0, 'f', 3));
+}
+
+void MainWindow::stopBeacon() {
+  m_transmit.stop();
+  m_beaconMonitor.stop();
+  m_beaconActive = false;
+  m_beaconProgram->setRunning(false);
+  statusBar()->showMessage(tr("Beacon stopped"));
+}
+
 void MainWindow::stopCapture() {
   // Clear the auto flag first so a segment finalized during stop is kept
   // but does not re-arm the state machine.
@@ -887,6 +953,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   // Fixed-size popout: no geometry/state to persist.
   m_capture.stop();
   m_jamMonitor.stop();
+  m_beaconMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
   QMainWindow::closeEvent(event);
