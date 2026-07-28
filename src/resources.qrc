@@ -10,6 +10,7 @@
         <file alias="jam.png">../assets/jam.png</file>
         <file alias="beacon.png">../assets/beacon.png</file>
         <file alias="sentry.png">../assets/sentry.png</file>
+        <file alias="repeater.png">../assets/repeater.png</file>
         <file alias="devicees.png">../assets/devicees.png</file>
         <file alias="arrow-up-white.png">../assets/arrow-up-white.png</file>
         <file alias="arrow-up-black.png">../assets/arrow-up-black.png</file>

@@ -4,6 +4,7 @@
 #include "dsp/SpectrumProcessor.h"
 #include "pipeline/CapturePipeline.h"
 #include "pipeline/PlaybackPipeline.h"
+#include "pipeline/RepeaterPipeline.h"
 #include "pipeline/TransmitPipeline.h"
 #include "sdr/DeviceManager.h"
 #include "storage/SessionStore.h"
@@ -41,6 +42,7 @@ class TransmitPanel;
 class JamProgram;
 class BeaconProgram;
 class SentryProgram;
+class RepeaterProgram;
 class WaterfallWidget;
 
 // Owns the application services (device manager, session store, pipelines)
@@ -118,6 +120,11 @@ private:
     void fireSentryBurst();
     void endSentryBurst();
 
+    // Standalone Repeater program: a store-and-forward relay. Arming starts the
+    // repeater pipeline (RX -> detect -> buffer -> retransmit at an offset).
+    void startRepeater();
+    void stopRepeater();
+
     // Auto-capture: continuously records each in-band transmission to its own
     // trimmed file.
     enum class AutoPhase { WaitSignal, Recording, Finalizing };
@@ -138,7 +145,9 @@ private:
     SpectrumProcessor m_jamProcessor; // live spectrum for the Jam program monitor
     SpectrumProcessor m_beaconProcessor; // live spectrum for the Beacon monitor
     SpectrumProcessor m_sentryProcessor; // detection spectrum for the Sentry
+    SpectrumProcessor m_repeaterProcessor; // live spectrum for the Repeater
     PeakDetector m_peakDetector;
+    PeakDetector m_repeaterPeakDetector; // peak markers for the Repeater viz
     StreamParams m_activeCaptureParams; // channel of the running capture
     bool m_monitorLive = false;
     bool m_autoActive = false;
@@ -171,6 +180,7 @@ private:
     CapturePipeline m_jamMonitor; // RX monitor feeding the Jam program's viz
     CapturePipeline m_beaconMonitor; // RX monitor feeding the Beacon's viz
     CapturePipeline m_sentryMonitor; // RX monitor driving the Sentry detection
+    RepeaterPipeline m_repeaterPipeline; // store-and-forward relay
     PlaybackPipeline m_playback;
     TransmitPipeline m_transmit;
 
@@ -208,6 +218,10 @@ private:
     std::shared_ptr<ISDRDevice> m_sentryTxDevice; // held open for fast bursts
     QTimer *m_sentryBurstTimer = nullptr;    // ends the active burst
     QTimer *m_sentryCooldownTimer = nullptr; // re-arms after the hold-off
+    RepeaterProgram *m_repeaterProgram = nullptr;
+    QWidget *m_repeaterScreen = nullptr; // back-bar wrapper around the Repeater
+    bool m_repeaterActive = false;       // Repeater pipeline is running
+    int m_repeaterRepeatCount = 0;
     // App-wide device selector; the pipelines read its selection.
     DevicesProgram *m_devicesProgram;
     int m_devicesIndex = -1;        // stack index of the Devicees screen
