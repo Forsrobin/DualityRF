@@ -30,6 +30,12 @@ SoapySDR-compatible device (RTL-SDR, HackRF, ADALM-PLUTO, LimeSDR, BladeRF,
 - Standalone Jam program: a dedicated transmitter (preset frequencies,
   waveform type, TX gain) with an always-on affected-bandwidth overlay and
   simultaneous FFT + waterfall.
+- Standalone Sentry program: a reactive (triggered) jammer that watches the
+  receiver for a transmission in a chosen window and, the instant the in-band
+  peak crosses a threshold, fires a timed jamming burst on the transmitter,
+  then holds off for a cooldown before re-arming — the classic RX → decision →
+  TX loop, with detection paused during each burst so it never re-triggers on
+  its own signal.
 - Debug program: A/B comparison of recordings with overlaid FFTs, offline
   waterfall, side-by-side metadata, occupied bandwidth (99 %), mean/peak
   power and peak offset measurements.

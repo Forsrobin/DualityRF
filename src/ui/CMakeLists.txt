@@ -63,6 +63,8 @@ add_library(duality_ui STATIC
     programs/JamProgram.cpp
     programs/BeaconProgram.h
     programs/BeaconProgram.cpp
+    programs/SentryProgram.h
+    programs/SentryProgram.cpp
     programs/DebugProgram.h
     programs/DebugProgram.cpp
     programs/InfoProgram.h

@@ -15,6 +15,7 @@
 #include <memory>
 
 class QStackedWidget;
+class QTimer;
 
 namespace duality {
 
@@ -39,6 +40,7 @@ class ToastManager;
 class TransmitPanel;
 class JamProgram;
 class BeaconProgram;
+class SentryProgram;
 class WaterfallWidget;
 
 // Owns the application services (device manager, session store, pipelines)
@@ -105,6 +107,17 @@ private:
     void startBeacon();
     void stopBeacon();
 
+    // Standalone Sentry program: a reactive jammer. Arming starts an RX monitor;
+    // each detection frame is tested against the watch window/threshold, and a
+    // crossing fires a timed jamming burst on the transmitter (then a cooldown).
+    void startSentry();
+    void stopSentry();
+    // Evaluate one live detection frame from the sentry monitor.
+    void onSentrySpectrum(const QVector<float> &row);
+    // Fire / end one jamming burst.
+    void fireSentryBurst();
+    void endSentryBurst();
+
     // Auto-capture: continuously records each in-band transmission to its own
     // trimmed file.
     enum class AutoPhase { WaitSignal, Recording, Finalizing };
@@ -124,6 +137,7 @@ private:
     SpectrumProcessor m_spectrumProcessor;
     SpectrumProcessor m_jamProcessor; // live spectrum for the Jam program monitor
     SpectrumProcessor m_beaconProcessor; // live spectrum for the Beacon monitor
+    SpectrumProcessor m_sentryProcessor; // detection spectrum for the Sentry
     PeakDetector m_peakDetector;
     StreamParams m_activeCaptureParams; // channel of the running capture
     bool m_monitorLive = false;
@@ -156,6 +170,7 @@ private:
     CapturePipeline m_capture;
     CapturePipeline m_jamMonitor; // RX monitor feeding the Jam program's viz
     CapturePipeline m_beaconMonitor; // RX monitor feeding the Beacon's viz
+    CapturePipeline m_sentryMonitor; // RX monitor driving the Sentry detection
     PlaybackPipeline m_playback;
     TransmitPipeline m_transmit;
 
@@ -177,6 +192,22 @@ private:
     BeaconProgram *m_beaconProgram = nullptr;
     QWidget *m_beaconScreen = nullptr; // back-bar wrapper around the Beacon
     bool m_beaconActive = false;       // Beacon program is transmitting
+    SentryProgram *m_sentryProgram = nullptr;
+    QWidget *m_sentryScreen = nullptr; // back-bar wrapper around the Sentry
+    bool m_sentryArmed = false;        // Sentry is watching for a trigger
+    // Reactive-jammer state machine: WatchSignal listens, Firing radiates a
+    // burst, Cooldown holds off before re-arming. Detection is ignored outside
+    // WatchSignal so the jammer never re-triggers on its own signal.
+    enum class SentryPhase { WatchSignal, Firing, Cooldown };
+    SentryPhase m_sentryPhase = SentryPhase::WatchSignal;
+    int m_sentryTriggerCount = 0;
+    StreamParams m_sentryParams;        // channel the sentry monitor/burst share
+    double m_sentryWatchCenterHz = 0.0; // detection window, latched at ARM
+    double m_sentryWatchHalfHz = 0.0;
+    float m_sentryThresholdDb = 0.0f;
+    std::shared_ptr<ISDRDevice> m_sentryTxDevice; // held open for fast bursts
+    QTimer *m_sentryBurstTimer = nullptr;    // ends the active burst
+    QTimer *m_sentryCooldownTimer = nullptr; // re-arms after the hold-off
     // App-wide device selector; the pipelines read its selection.
     DevicesProgram *m_devicesProgram;
     int m_devicesIndex = -1;        // stack index of the Devicees screen

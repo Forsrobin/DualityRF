@@ -22,6 +22,7 @@
 #include "ui/programs/InfoProgram.h"
 #include "ui/programs/JamProgram.h"
 #include "ui/programs/BeaconProgram.h"
+#include "ui/programs/SentryProgram.h"
 #include "ui/programs/LookingProgram.h"
 #include "ui/programs/SessionsProgram.h"
 
@@ -36,6 +37,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 
 namespace duality {
 
@@ -53,7 +55,8 @@ constexpr int kSplashMinimumMs = 1500;
 
 MainWindow::MainWindow()
     : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor),
-      m_beaconMonitor(&m_beaconProcessor) {
+      m_beaconMonitor(&m_beaconProcessor),
+      m_sentryMonitor(&m_sentryProcessor) {
   setWindowTitle(QStringLiteral("DUALITY RF"));
 
   // Fixed 320x480 portrait popout: not resizable. Equal min/max size is also
@@ -158,6 +161,11 @@ MainWindow::MainWindow()
       tr("BEACON"), QStringLiteral(":/assets/beacon.png"), m_beaconProgram);
   beaconScreen->setInfo(tr("BEACON"), BeaconProgram::infoText());
   m_beaconScreen = beaconScreen;
+  m_sentryProgram = new SentryProgram(this);
+  ProgramScreen *sentryScreen = addProgram(
+      tr("SENTRY"), QStringLiteral(":/assets/sentry.png"), m_sentryProgram);
+  sentryScreen->setInfo(tr("SENTRY"), SentryProgram::infoText());
+  m_sentryScreen = sentryScreen;
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugProgram);
   addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
@@ -181,6 +189,9 @@ MainWindow::MainWindow()
     // Same for the Beacon: never leave a transmitter keying off-screen.
     if (m_beaconActive && m_stack->currentWidget() != m_beaconScreen)
       stopBeacon();
+    // Same for the Sentry: disarm the reactive jammer if it leaves the screen.
+    if (m_sentryArmed && m_stack->currentWidget() != m_sentryScreen)
+      stopSentry();
   });
 
   // Boot splash lives in the stack too; show it first, then reveal the home
@@ -413,6 +424,34 @@ MainWindow::MainWindow()
   connect(&m_beaconMonitor, &CapturePipeline::errorOccurred, this,
           [this](const QString &msg) { statusBar()->showMessage(msg); });
 
+  // Standalone Sentry program (reactive jammer). The detection row drives the
+  // trigger loop; a single-shot burst timer ends each burst and a cooldown
+  // timer re-arms after the hold-off.
+  m_sentryBurstTimer = new QTimer(this);
+  m_sentryBurstTimer->setSingleShot(true);
+  m_sentryCooldownTimer = new QTimer(this);
+  m_sentryCooldownTimer->setSingleShot(true);
+  connect(m_sentryProgram, &SentryProgram::startRequested, this,
+          &MainWindow::startSentry);
+  connect(m_sentryProgram, &SentryProgram::stopRequested, this,
+          &MainWindow::stopSentry);
+  // detectionRowReady is the pre-averaging envelope, so the trigger tracks the
+  // real onset instead of the smoothed trace's slow attack.
+  connect(&m_sentryProcessor, &SpectrumProcessor::detectionRowReady, this,
+          &MainWindow::onSentrySpectrum);
+  connect(&m_sentryProcessor, &SpectrumProcessor::spectrumReady, m_sentryProgram,
+          &SentryProgram::pushSpectrum);
+  connect(&m_sentryMonitor, &CapturePipeline::errorOccurred, this,
+          [this](const QString &msg) { statusBar()->showMessage(msg); });
+  connect(m_sentryBurstTimer, &QTimer::timeout, this,
+          &MainWindow::endSentryBurst);
+  connect(m_sentryCooldownTimer, &QTimer::timeout, this, [this] {
+    if (m_sentryArmed) {
+      m_sentryPhase = SentryPhase::WatchSignal;
+      m_sentryProgram->setFiring(false);
+    }
+  });
+
   m_deviceManager.rescan();
   updateCaptureRangeOverlay();
 }
@@ -421,6 +460,7 @@ MainWindow::~MainWindow() {
   m_capture.stop();
   m_jamMonitor.stop();
   m_beaconMonitor.stop();
+  m_sentryMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
 }
@@ -841,6 +881,123 @@ void MainWindow::stopBeacon() {
   statusBar()->showMessage(tr("Beacon stopped"));
 }
 
+void MainWindow::startSentry() {
+  // A reactive jammer needs both ends: the receiver to detect and the
+  // transmitter to jam. Two separate devices let it listen while it radiates.
+  const auto rxInfo = m_devicesProgram->selectedRx();
+  if (!rxInfo) {
+    statusBar()->showMessage(tr("Select a receiver first"));
+    m_sentryProgram->setRunning(false);
+    return;
+  }
+  const auto txInfo = m_devicesProgram->selectedTx();
+  if (!txInfo) {
+    statusBar()->showMessage(tr("Select a transmitter first"));
+    m_sentryProgram->setRunning(false);
+    return;
+  }
+  auto rxDevice = m_deviceManager.open(*rxInfo);
+  if (!rxDevice) {
+    statusBar()->showMessage(tr("Cannot open %1").arg(rxInfo->displayName()));
+    m_sentryProgram->setRunning(false);
+    return;
+  }
+  // Hold the transmitter open so each burst starts without re-opening latency.
+  m_sentryTxDevice = m_deviceManager.open(*txInfo);
+  if (!m_sentryTxDevice) {
+    statusBar()->showMessage(tr("Cannot open %1").arg(txInfo->displayName()));
+    m_sentryProgram->setRunning(false);
+    return;
+  }
+
+  m_sentryParams = m_sentryProgram->streamParams();
+  CapturePipeline::Plan plan;
+  plan.params = m_sentryParams; // monitor only (no output path)
+  if (!m_sentryMonitor.start(std::move(rxDevice), plan)) {
+    m_sentryTxDevice.reset();
+    m_sentryProgram->setRunning(false);
+    return;
+  }
+
+  // Latch the detection window/threshold so live control edits (locked anyway)
+  // never change the running trigger.
+  m_sentryWatchCenterHz = m_sentryProgram->watchCenterHz();
+  m_sentryWatchHalfHz = 0.5 * m_sentryProgram->watchWidthHz();
+  m_sentryThresholdDb = m_sentryProgram->thresholdDb();
+  m_sentryTriggerCount = 0;
+  m_sentryPhase = SentryPhase::WatchSignal;
+  m_sentryArmed = true;
+  m_sentryProgram->setTriggerCount(0);
+  m_sentryProgram->setRunning(true);
+  statusBar()->showMessage(tr("Sentry armed on %1 MHz")
+                               .arg(m_sentryParams.frequencyHz / 1e6, 0, 'f', 3));
+}
+
+void MainWindow::stopSentry() {
+  m_sentryBurstTimer->stop();
+  m_sentryCooldownTimer->stop();
+  m_transmit.stop();
+  m_sentryMonitor.stop();
+  m_sentryTxDevice.reset();
+  m_sentryArmed = false;
+  m_sentryPhase = SentryPhase::WatchSignal;
+  m_sentryProgram->setRunning(false);
+  statusBar()->showMessage(tr("Sentry disarmed"));
+}
+
+void MainWindow::onSentrySpectrum(const QVector<float> &row) {
+  // Only the WatchSignal phase evaluates triggers; during a burst and its
+  // cooldown the jammer ignores the (self-jammed) band so it never re-fires on
+  // its own signal.
+  if (!m_sentryArmed || m_sentryPhase != SentryPhase::WatchSignal)
+    return;
+  const int n = row.size();
+  const double span = m_sentryParams.sampleRateHz;
+  if (n <= 0 || span <= 0.0)
+    return;
+
+  // The row is fftshifted: bin i covers frequency (center - span/2 + i*span/n).
+  const double startHz = m_sentryParams.frequencyHz - 0.5 * span;
+  const double binHz = span / n;
+  const auto freqToBin = [&](double hz) {
+    return static_cast<int>((hz - startHz) / binHz);
+  };
+  int lo = freqToBin(m_sentryWatchCenterHz - m_sentryWatchHalfHz);
+  int hi = freqToBin(m_sentryWatchCenterHz + m_sentryWatchHalfHz);
+  lo = std::clamp(lo, 0, n - 1);
+  hi = std::clamp(hi, 0, n - 1);
+  if (hi < lo)
+    std::swap(lo, hi);
+
+  float peak = -std::numeric_limits<float>::infinity();
+  for (int i = lo; i <= hi; ++i)
+    peak = std::max(peak, row[i]);
+  if (peak >= m_sentryThresholdDb)
+    fireSentryBurst();
+}
+
+void MainWindow::fireSentryBurst() {
+  // Reuse the shared transmit pipeline with the held-open transmitter; a copy
+  // of the shared_ptr keeps the device alive across the pipeline's stop/start.
+  if (!m_transmit.start(m_sentryTxDevice, m_sentryParams,
+                        m_sentryProgram->waveformConfig()))
+    return; // stay watching; the pipeline already reported the error
+  m_sentryPhase = SentryPhase::Firing;
+  m_sentryProgram->setFiring(true);
+  m_sentryProgram->setTriggerCount(++m_sentryTriggerCount);
+  statusBar()->showMessage(tr("Sentry burst #%1").arg(m_sentryTriggerCount));
+  m_sentryBurstTimer->start(m_sentryProgram->burstMs());
+}
+
+void MainWindow::endSentryBurst() {
+  m_transmit.stop();
+  if (!m_sentryArmed)
+    return; // disarmed mid-burst; stopSentry already reset the state
+  m_sentryPhase = SentryPhase::Cooldown;
+  m_sentryProgram->setFiring(false);
+  m_sentryCooldownTimer->start(m_sentryProgram->cooldownMs());
+}
+
 void MainWindow::stopCapture() {
   // Clear the auto flag first so a segment finalized during stop is kept
   // but does not re-arm the state machine.
@@ -954,6 +1111,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   m_capture.stop();
   m_jamMonitor.stop();
   m_beaconMonitor.stop();
+  m_sentryMonitor.stop();
   m_transmit.stop();
   m_playback.stop();
   QMainWindow::closeEvent(event);
