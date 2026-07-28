@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>◈ DualityRF ◈ · The Software Defined Radio Laboratory</title>
+<meta name="description" content="DualityRF — a local desktop SDR laboratory. Now with a 100% radical 3D hardware viewer!">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23000080'/><text x='8' y='12' font-size='9' fill='%2300ffff' text-anchor='middle' font-family='monospace'>RF</text></svg>">
+</head>
+<body>
+
+<!-- ============ CRT + STARFIELD FX ============ -->
+<canvas id="stars" class="starfield" aria-hidden="true"></canvas>
+<div id="crt" class="crt" aria-hidden="true"></div>
+
+<!-- ============ MAIN WIN98 WINDOW ============ -->
+<div class="desktop">
+<div class="win" id="app">
+
+  <!-- Title bar -->
+  <div class="win__title">
+    <span class="win__title-text">DualityRF.exe — [C:\HOMEPAGE\index.htm]</span>
+    <span class="win__btns">
+      <button class="win__btn" title="Minimize" data-fx="min">_</button>
+      <button class="win__btn" title="Maximize" data-fx="max">□</button>
+      <button class="win__btn win__btn--x" title="You can't close the fun" data-fx="close">×</button>
+    </span>
+  </div>
+
+  <!-- Menu bar -->
+  <div class="menubar">
+    <span class="menubar__item"><u>F</u>ile</span>
+    <span class="menubar__item"><u>E</u>dit</span>
+    <span class="menubar__item"><u>V</u>iew</span>
+    <span class="menubar__item" id="crtToggle" title="Toggle scanlines">[ CRT ]</span>
+    <span class="menubar__item" id="hyperBtn" title="Engage hyperdrive">[ HYPERDRIVE ]</span>
+    <span class="menubar__clock" id="clock">--:--:--</span>
+  </div>
+
+  <!-- Marquee welcome -->
+  <div class="marquee"><div class="marquee__track">
+    ★★★ WELCOME TO THE DUALITYRF HOMEPAGE ★★★ &nbsp; ::: now with a REAL-TIME 3D hardware viewer ::: &nbsp;
+    record · visualize · analyze · replay &nbsp; ::: sign the guestbook! ::: &nbsp;
+    best viewed in Netscape Navigator at 1024×768 &nbsp; ::: 73 de DUALITY ::: &nbsp;
+  </div></div>
+
+  <!-- Tab nav -->
+  <nav class="tabs">
+    <a class="tab tab--on" href="#home">HOME</a>
+    <a class="tab" href="#viewer">3D&nbsp;LAB</a>
+    <a class="tab" href="#features">FEATURES</a>
+    <a class="tab" href="#guestbook">GUESTBOOK</a>
+    <a class="tab" href="#" id="secretTab" title="???">?</a>
+  </nav>
+
+  <!-- Body: content + sidebar -->
+  <div class="layout">
+
+    <!-- ===== MAIN COLUMN ===== -->
+    <main class="content">
+
+      <section id="home" class="panel">
+        <h1 class="glow rainbow">D&nbsp;U&nbsp;A&nbsp;L&nbsp;I&nbsp;T&nbsp;Y&nbsp;R&nbsp;F</h1>
+        <p class="tagline blink-slow">◄ The Software Defined Radio Laboratory ►</p>
+        <p>
+          Greetings, cyber-traveller! You have jacked into the home of <b>DualityRF</b> — a
+          local desktop <b>SDR laboratory</b> built with Qt&nbsp;6, C++20, SoapySDR and FFTW.
+          Record, visualize, analyze and replay IQ sample streams from any SoapySDR device
+          (RTL-SDR, HackRF, PlutoSDR &amp; friends). It even runs on the humble Raspberry&nbsp;Pi
+          you see spinning to the right. <span class="fire">&gt;&gt; 100% offline. 0% cloud. &lt;&lt;</span>
+        </p>
+        <div class="construction" title="pardon our dust"></div>
+        <p class="small">This site is under eternal construction, as all great sites are.</p>
+      </section>
+
+      <section id="viewer" class="panel">
+        <h2 class="glow">THE 3D HARDWARE LAB</h2>
+        <p class="small">Drag to orbit &middot; scroll to zoom &middot; right-drag to pan. Genuine WebGL, no plug-ins!</p>
+
+        <div class="viewer">
+          <div id="stage" class="viewer__stage">
+            <div id="vprogress" class="viewer__progress">
+              <div class="viewer__progress-label">MOUNTING /dev/hardware …</div>
+              <div class="viewer__progress-bar"><div id="vprogressfill" class="viewer__progress-fill"></div></div>
+              <div id="vprogresspct" class="viewer__progress-pct">0%</div>
+            </div>
+            <div class="viewer__hud">
+              <span id="fps" class="viewer__fps">-- FPS</span>
+              <span id="tris" class="viewer__tris"></span>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <button class="btn" id="btnRotate">Auto-Spin: ON</button>
+            <button class="btn" id="btnWire">Wireframe</button>
+            <button class="btn" id="btnSkin">Skin: PCB</button>
+            <button class="btn" id="btnReset">Reset View</button>
+            <button class="btn" id="btnShot">Snapshot</button>
+          </div>
+        </div>
+        <p class="small credit">model: <code>Raspberry_Pi_3.STL</code> &middot; rendered live in your browser</p>
+      </section>
+
+      <section id="features" class="panel">
+        <h2 class="glow">FEATURES OF THE LAB</h2>
+        <ul class="features">
+          <li><b>Capture</b> — configurable frequency, sample rate, gains &amp; trigger modes with auto-carved recordings.</li>
+          <li><b>Live FFT + waterfall</b> — zoom, pan and peak-hold, processed off the UI thread.</li>
+          <li><b>Concurrent TX</b> — white/Gaussian noise, CW, sine or your own IQ waveform.</li>
+          <li><b>Structured sessions</b> — cs16 recordings, metadata &amp; an FFT cache, all local.</li>
+          <li><b>Playback</b> — replay any recording through a selected transmitter.</li>
+          <li><b>Beacon</b> — key any message as looping International Morse (CW).</li>
+          <li><b>Jam</b> — a dedicated transmitter with a live affected-band overlay.</li>
+          <li><b>Debug</b> — A/B compare recordings with overlaid FFTs and measurements.</li>
+        </ul>
+        <marquee-note>Portable to ARM / Raspberry&nbsp;Pi. Touch-friendly 320×480 UI.</marquee-note>
+      </section>
+
+      <section id="guestbook" class="panel">
+        <h2 class="glow">SIGN MY GUESTBOOK</h2>
+        <p class="small">Leave your mark on the information superhighway. (Saved in your browser only — totally private.)</p>
+        <form id="gbForm" class="gb-form" autocomplete="off">
+          <div class="gb-row">
+            <label>Handle <input id="gbName" maxlength="24" placeholder="XxCoolHam73xX" required></label>
+            <label class="gb-mood">Mood
+              <select id="gbMood">
+                <option>:-)</option><option>^_^</option><option>o_O</option><option>&lt;3</option>
+                <option>\m/</option><option>8)</option><option>:-P</option><option>=D</option>
+              </select>
+            </label>
+          </div>
+          <label class="gb-msg">Message
+            <textarea id="gbMsg" maxlength="140" rows="2" placeholder="ur site rulez! keep transmitting..." required></textarea>
+          </label>
+          <button class="btn btn--big" type="submit">SIGN IT!</button>
+        </form>
+        <div id="gbList" class="gb-list"></div>
+      </section>
+
+    </main>
+
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar">
+
+      <div class="sunk counter-box">
+        <div class="counter-box__label">✦ You are visitor ✦</div>
+        <div id="counter" class="odometer">00000000</div>
+        <div class="counter-box__label small">since Jul 4, 2001</div>
+      </div>
+
+      <div class="sunk assistant">
+        <div class="assistant__face" id="assistantFace">^_^</div>
+        <div class="assistant__bubble" id="assistantSay">Loading helper…</div>
+      </div>
+
+      <div class="sunk webring">
+        <div class="sidebar__h">THE RF WEB-RING</div>
+        <div class="webring__nav">
+          <button class="lnk" id="ringPrev">◄ Prev</button>
+          <button class="lnk" id="ringRand">✷ Random</button>
+          <button class="lnk" id="ringNext">Next ►</button>
+        </div>
+        <div id="ringName" class="webring__name">— member #128 —</div>
+      </div>
+
+      <div class="sunk badges">
+        <div class="sidebar__h">88×31 CERTIFIED</div>
+        <div class="badge badge--blue" title="Best viewed at 1024x768">BEST VIEWED<br>1024×768</div>
+        <div class="badge badge--green" title="Powered by three.js">POWERED BY<br>three.js ▲</div>
+        <div class="badge badge--red" title="Made with Notepad">MADE WITH<br>NOTEPAD.EXE</div>
+        <div class="badge badge--black" title="Valid HTML, trust me">VALID<br>HTML 4.01</div>
+        <div class="badge badge--purple" title="Netscape Now!">NETSCAPE<br>NOW! ▼</div>
+        <div class="badge badge--rf" title="73!">100% REAL<br>RF ENERGY</div>
+      </div>
+
+      <div class="sunk nowplaying">
+        <div class="sidebar__h">NOW PLAYING</div>
+        <div class="nowplaying__eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="nowplaying__track">dialup_handshake.mid</div>
+      </div>
+
+    </aside>
+  </div>
+
+  <!-- Status bar -->
+  <div class="statusbar">
+    <span class="statusbar__cell" id="statusMsg">Ready.</span>
+    <span class="statusbar__cell statusbar__cell--sm" id="uptime">uptime 0s</span>
+    <span class="statusbar__cell statusbar__cell--sm">online</span>
+    <span class="statusbar__cell statusbar__cell--sm"><span id="today"></span></span>
+  </div>
+
+</div><!-- /win -->
+<div class="copyright">© 2001–2026 DualityRF &middot; hand-coded with &lt;3 &middot; no cookies, no trackers, just photons &amp; RF</div>
+</div><!-- /desktop -->
+
+<!-- ============ SCRIPTS ============ -->
+<script src="js/vendor/three.min.js"></script>
+<script src="js/vendor/STLLoader.js"></script>
+<script src="js/vendor/OrbitControls.js"></script>
+<script src="js/viewer.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+services:
+  web:
+    build: .
+    image: dualityrf-web
+    container_name: dualityrf-web
+    ports:
+      - "1337:80"
+    restart: unless-stopped
