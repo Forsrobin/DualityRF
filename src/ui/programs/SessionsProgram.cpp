@@ -107,10 +107,21 @@ SessionsProgram::SessionsProgram(SessionStore *store, QWidget *parent)
     auto *listPage = new QWidget(this);
     auto *listLayout = new QVBoxLayout(listPage);
     listLayout->setContentsMargins(6, 6, 6, 6);
+    auto *listHeader = new QHBoxLayout;
     auto *newButton = new QPushButton(tr("NEW SESSION"), listPage);
     newButton->setCursor(Qt::PointingHandCursor);
     connect(newButton, &QPushButton::clicked, this,
             &SessionsProgram::newSessionRequested);
+    auto *deleteAll = new QPushButton(tr("DELETE ALL"), listPage);
+    deleteAll->setCursor(Qt::PointingHandCursor);
+    deleteAll->setStyleSheet(
+        QStringLiteral("QPushButton { background:#cc0000; color:#ffffff; "
+                       "border:1px solid #990000; font-weight:bold; }"
+                       "QPushButton:pressed { background:#990000; }"));
+    connect(deleteAll, &QPushButton::clicked, this,
+            &SessionsProgram::promptDeleteAllSessions);
+    listHeader->addWidget(newButton, 1);
+    listHeader->addWidget(deleteAll);
     m_sessions->setSelectionMode(QAbstractItemView::NoSelection);
     m_sessions->setWordWrap(true);
     m_sessions->setCursor(Qt::PointingHandCursor);
@@ -122,7 +133,7 @@ SessionsProgram::SessionsProgram(SessionStore *store, QWidget *parent)
                 if (!dir.isEmpty())
                     openSession(dir);
             });
-    listLayout->addWidget(newButton);
+    listLayout->addLayout(listHeader);
     listLayout->addWidget(m_sessions, 1);
 
     // ---- Detail page (scrollable): header, recordings, info, player. ----
@@ -341,6 +352,29 @@ void SessionsProgram::promptDeleteSession()
     if (reply != QMessageBox::Yes)
         return;
     m_store->deleteSession(m_session->dir());
+    m_session.reset();
+    m_currentRecording = -1;
+    showList();
+    emit sessionsChanged();
+}
+
+void SessionsProgram::promptDeleteAllSessions()
+{
+    const QStringList dirs = m_store->listSessionDirs();
+    if (dirs.isEmpty()) {
+        QMessageBox::information(this, tr("Delete all sessions"),
+                                 tr("There are no sessions to delete."));
+        return;
+    }
+    const auto reply = QMessageBox::question(
+        this, tr("Delete all sessions"),
+        tr("Permanently delete all %1 sessions and every recording they "
+           "contain? This cannot be undone.")
+            .arg(dirs.size()));
+    if (reply != QMessageBox::Yes)
+        return;
+    for (const QString &dir : dirs)
+        m_store->deleteSession(dir);
     m_session.reset();
     m_currentRecording = -1;
     showList();

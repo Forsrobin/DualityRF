@@ -47,6 +47,7 @@ private:
     void rebuildDetail();
     void showRecording(int index);
     void promptDeleteSession();
+    void promptDeleteAllSessions();
     void promptDeleteRecording(int index);
 
     SessionStore *m_store;
