@@ -36,6 +36,14 @@ SoapySDR-compatible device (RTL-SDR, HackRF, ADALM-PLUTO, LimeSDR, BladeRF,
   then holds off for a cooldown before re-arming — the classic RX → decision →
   TX loop, with detection paused during each burst so it never re-triggers on
   its own signal.
+- Standalone Repeater program: an in-memory store-and-forward relay. It listens
+  on a channel, buffers the raw IQ of each detected burst (power detector with
+  hang time), band-limits it to a configurable capture range, then retransmits
+  it once — optionally shifted by a carrier offset — so a weak signal is picked
+  up and rebroadcast to reach further. Detected signals (within the capture
+  range) are marked with a peak line and a toast. The receiver keeps running
+  during the retransmit, so the FFT/waterfall show the replayed signal live —
+  which needs a full-duplex device or a separate receiver and transmitter.
 - Debug program: A/B comparison of recordings with overlaid FFTs, offline
   waterfall, side-by-side metadata, occupied bandwidth (99 %), mean/peak
   power and peak offset measurements.

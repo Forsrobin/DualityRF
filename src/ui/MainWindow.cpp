@@ -23,6 +23,7 @@
 #include "ui/programs/JamProgram.h"
 #include "ui/programs/BeaconProgram.h"
 #include "ui/programs/SentryProgram.h"
+#include "ui/programs/RepeaterProgram.h"
 #include "ui/programs/LookingProgram.h"
 #include "ui/programs/SessionsProgram.h"
 
@@ -56,7 +57,8 @@ constexpr int kSplashMinimumMs = 1500;
 MainWindow::MainWindow()
     : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor),
       m_beaconMonitor(&m_beaconProcessor),
-      m_sentryMonitor(&m_sentryProcessor) {
+      m_sentryMonitor(&m_sentryProcessor),
+      m_repeaterPipeline(&m_repeaterProcessor) {
   setWindowTitle(QStringLiteral("DUALITY RF"));
 
   // Fixed 320x480 portrait popout: not resizable. Equal min/max size is also
@@ -166,6 +168,11 @@ MainWindow::MainWindow()
       tr("SENTRY"), QStringLiteral(":/assets/sentry.png"), m_sentryProgram);
   sentryScreen->setInfo(tr("SENTRY"), SentryProgram::infoText());
   m_sentryScreen = sentryScreen;
+  m_repeaterProgram = new RepeaterProgram(this);
+  ProgramScreen *repeaterScreen = addProgram(
+      tr("REPEATER"), QStringLiteral(":/assets/repeater.png"), m_repeaterProgram);
+  repeaterScreen->setInfo(tr("REPEATER"), RepeaterProgram::infoText());
+  m_repeaterScreen = repeaterScreen;
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugProgram);
   addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
@@ -192,6 +199,9 @@ MainWindow::MainWindow()
     // Same for the Sentry: disarm the reactive jammer if it leaves the screen.
     if (m_sentryArmed && m_stack->currentWidget() != m_sentryScreen)
       stopSentry();
+    // Same for the Repeater: stop the relay if it leaves the screen.
+    if (m_repeaterActive && m_stack->currentWidget() != m_repeaterScreen)
+      stopRepeater();
   });
 
   // Boot splash lives in the stack too; show it first, then reveal the home
@@ -452,6 +462,67 @@ MainWindow::MainWindow()
     }
   });
 
+  // Standalone Repeater program (store-and-forward relay). The pipeline reports
+  // phase transitions and each relayed burst; the processor feeds the viz.
+  connect(m_repeaterProgram, &RepeaterProgram::startRequested, this,
+          &MainWindow::startRepeater);
+  connect(m_repeaterProgram, &RepeaterProgram::stopRequested, this,
+          &MainWindow::stopRepeater);
+  connect(&m_repeaterProcessor, &SpectrumProcessor::spectrumReady, this,
+          [this](const QVector<float> &row) {
+            m_repeaterProgram->pushSpectrum(row);
+            if (!m_repeaterActive)
+              return;
+            // Peak markers (the detection line) plus a toast for each newly
+            // appeared signal, mirroring the FOB monitor. Detection is confined
+            // to the capture range: bins outside it are masked below any
+            // threshold, so only signals that will actually be replayed count.
+            QVector<float> band = row;
+            const double halfHz = m_repeaterProgram->captureRangeHz();
+            if (halfHz > 0.0 && !band.isEmpty()) {
+              const StreamParams rxp = m_repeaterProgram->rxParams();
+              const int n = band.size();
+              const double startHz = rxp.frequencyHz - 0.5 * rxp.sampleRateHz;
+              const double binHz = rxp.sampleRateHz / n;
+              const auto toBin = [&](double hz) {
+                return static_cast<int>((hz - startHz) / binHz);
+              };
+              const int lo = toBin(rxp.frequencyHz - halfHz);
+              const int hi = toBin(rxp.frequencyHz + halfHz);
+              for (int i = 0; i < n; ++i)
+                if (i < lo || i > hi)
+                  band[i] = -300.0f; // well below any usable threshold
+            }
+            QVector<DetectedPeak> appeared;
+            const QVector<DetectedPeak> peaks =
+                m_repeaterPeakDetector.update(band, &appeared);
+            QVector<SpectrumMarker> markers;
+            markers.reserve(peaks.size());
+            for (const DetectedPeak &p : peaks)
+              markers.push_back({p.frequencyHz, p.powerDb});
+            m_repeaterProgram->setPeakMarkers(markers);
+            for (const DetectedPeak &p : appeared)
+              m_toasts->show(tr("Peak detected: %1 MHz (%2 dB)")
+                                 .arg(p.frequencyHz / 1e6, 0, 'f', 4)
+                                 .arg(p.powerDb, 0, 'f', 1));
+          });
+  connect(&m_repeaterPipeline, &RepeaterPipeline::listening, m_repeaterProgram,
+          [this] { m_repeaterProgram->setPhase(RepeaterProgram::Phase::Listening); });
+  connect(&m_repeaterPipeline, &RepeaterPipeline::capturing, m_repeaterProgram,
+          [this] { m_repeaterProgram->setPhase(RepeaterProgram::Phase::Capturing); });
+  connect(&m_repeaterPipeline, &RepeaterPipeline::transmitting, m_repeaterProgram,
+          [this] { m_repeaterProgram->setPhase(RepeaterProgram::Phase::Transmitting); });
+  connect(&m_repeaterPipeline, &RepeaterPipeline::repeated, this,
+          [this](qint64 samples, double seconds) {
+            m_repeaterProgram->setRepeatCount(++m_repeaterRepeatCount);
+            statusBar()->showMessage(
+                tr("Repeated %1 samples (%2 s)")
+                    .arg(samples)
+                    .arg(seconds, 0, 'f', 2));
+          });
+  connect(&m_repeaterPipeline, &RepeaterPipeline::errorOccurred, this,
+          [this](const QString &msg) { statusBar()->showMessage(msg); });
+
   m_deviceManager.rescan();
   updateCaptureRangeOverlay();
 }
@@ -461,6 +532,7 @@ MainWindow::~MainWindow() {
   m_jamMonitor.stop();
   m_beaconMonitor.stop();
   m_sentryMonitor.stop();
+  m_repeaterPipeline.stop();
   m_transmit.stop();
   m_playback.stop();
 }
@@ -998,6 +1070,64 @@ void MainWindow::endSentryBurst() {
   m_sentryCooldownTimer->start(m_sentryProgram->cooldownMs());
 }
 
+void MainWindow::startRepeater() {
+  // A relay needs both directions. A full-duplex device may be selected for
+  // both, in which case the manager hands back one shared handle.
+  const auto rxInfo = m_devicesProgram->selectedRx();
+  if (!rxInfo) {
+    statusBar()->showMessage(tr("Select a receiver first"));
+    m_repeaterProgram->setRunning(false);
+    return;
+  }
+  const auto txInfo = m_devicesProgram->selectedTx();
+  if (!txInfo) {
+    statusBar()->showMessage(tr("Select a transmitter first"));
+    m_repeaterProgram->setRunning(false);
+    return;
+  }
+  auto rxDevice = m_deviceManager.open(*rxInfo);
+  auto txDevice = m_deviceManager.open(*txInfo);
+  if (!rxDevice || !txDevice) {
+    statusBar()->showMessage(tr("Cannot open the selected device"));
+    m_repeaterProgram->setRunning(false);
+    return;
+  }
+
+  const StreamParams rxParams = m_repeaterProgram->rxParams();
+  RepeaterPipeline::Config cfg;
+  cfg.rxParams = rxParams;
+  cfg.txFrequencyHz = rxParams.frequencyHz + m_repeaterProgram->offsetHz();
+  cfg.txGainDb = m_repeaterProgram->txGainDb();
+  cfg.thresholdDb = m_repeaterProgram->thresholdDb();
+  cfg.captureRangeHz = m_repeaterProgram->captureRangeHz();
+  if (!m_repeaterPipeline.start(std::move(rxDevice), std::move(txDevice), cfg)) {
+    m_repeaterProgram->setRunning(false);
+    return;
+  }
+
+  // Peak markers/toasts track the received band, keyed off the same threshold.
+  m_repeaterPeakDetector.setAxis(rxParams.frequencyHz, rxParams.sampleRateHz);
+  m_repeaterPeakDetector.setThresholdDb(m_repeaterProgram->thresholdDb());
+  m_repeaterPeakDetector.reset();
+
+  m_repeaterRepeatCount = 0;
+  m_repeaterActive = true;
+  m_repeaterProgram->setRepeatCount(0);
+  m_repeaterProgram->setRunning(true);
+  m_repeaterProgram->setPhase(RepeaterProgram::Phase::Listening);
+  statusBar()->showMessage(tr("Repeater armed on %1 MHz")
+                               .arg(rxParams.frequencyHz / 1e6, 0, 'f', 3));
+}
+
+void MainWindow::stopRepeater() {
+  m_repeaterPipeline.stop();
+  m_repeaterActive = false;
+  m_repeaterPeakDetector.reset();
+  m_repeaterProgram->setPeakMarkers({});
+  m_repeaterProgram->setRunning(false);
+  statusBar()->showMessage(tr("Repeater stopped"));
+}
+
 void MainWindow::stopCapture() {
   // Clear the auto flag first so a segment finalized during stop is kept
   // but does not re-arm the state machine.
@@ -1112,6 +1242,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   m_jamMonitor.stop();
   m_beaconMonitor.stop();
   m_sentryMonitor.stop();
+  m_repeaterPipeline.stop();
   m_transmit.stop();
   m_playback.stop();
   QMainWindow::closeEvent(event);
