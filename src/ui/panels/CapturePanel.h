@@ -54,7 +54,6 @@ signals:
 private:
     QDoubleSpinBox *m_frequency;
     QDoubleSpinBox *m_sampleRate;
-    QDoubleSpinBox *m_bandwidth;
     QDoubleSpinBox *m_gain;
     QDoubleSpinBox *m_peakThreshold;
     QDoubleSpinBox *m_captureRange;

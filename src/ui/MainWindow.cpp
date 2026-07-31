@@ -12,6 +12,7 @@
 #include "ui/widgets/SpectrumWidget.h"
 #include "ui/SplashPage.h"
 #include "ui/Theme.h"
+#include "ui/components/NumpadOverlay.h"
 #include "ui/components/ToastManager.h"
 #include "ui/panels/TransmitPanel.h"
 #include "ui/widgets/WaterfallWidget.h"
@@ -213,6 +214,11 @@ MainWindow::MainWindow()
                      [this] { m_stack->setCurrentWidget(m_home); });
 
   m_toasts = new ToastManager(this, this);
+
+  // Touchscreen numeric keypad: parents itself to the window and pops up from
+  // the bottom whenever any spin box is focused. Owned by the window.
+  new NumpadOverlay(this);
+
   statusBar()->showMessage(tr("Ready"));
   statusBar()->hide(); // splash/home carry no status bar
 

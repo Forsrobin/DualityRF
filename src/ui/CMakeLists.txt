@@ -24,6 +24,8 @@ add_library(duality_ui STATIC
     components/ScanIndicator.cpp
     components/ProgramInfo.h
     components/ProgramInfo.cpp
+    components/NumpadOverlay.h
+    components/NumpadOverlay.cpp
 
     # Visualization widgets
     widgets/SpectrumWidget.h
