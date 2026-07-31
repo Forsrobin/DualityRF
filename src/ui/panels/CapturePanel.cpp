@@ -25,7 +25,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     : QWidget(parent)
     , m_frequency(new QDoubleSpinBox(this))
     , m_sampleRate(new QDoubleSpinBox(this))
-    , m_bandwidth(new QDoubleSpinBox(this))
     , m_gain(new QDoubleSpinBox(this))
     , m_peakThreshold(new QDoubleSpinBox(this))
     , m_captureRange(new QDoubleSpinBox(this))
@@ -46,12 +45,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     m_sampleRate->setDecimals(3);
     m_sampleRate->setValue(2.0);
     m_sampleRate->setSuffix(tr(" MS/s"));
-
-    m_bandwidth->setRange(0.0, 61.44);
-    m_bandwidth->setDecimals(3);
-    m_bandwidth->setValue(0.0);
-    m_bandwidth->setSuffix(tr(" MHz"));
-    m_bandwidth->setSpecialValueText(tr("auto"));
 
     m_gain->setRange(0.0, 76.0);
     m_gain->setDecimals(1);
@@ -114,7 +107,6 @@ CapturePanel::CapturePanel(QWidget *parent)
     layout->addRow(settingsLabel);
     layout->addRow(tr("Frequency"), m_frequency);
     layout->addRow(tr("Sample rate"), m_sampleRate);
-    layout->addRow(tr("Bandwidth"), m_bandwidth);
     layout->addRow(tr("RX gain"), m_gain);
     layout->addRow(tr("Peak level"), m_peakThreshold);
     layout->addRow(tr("Capture range"), m_captureRange);
@@ -126,8 +118,7 @@ CapturePanel::CapturePanel(QWidget *parent)
             &CapturePanel::recordRequested);
     connect(m_stopButton, &QPushButton::clicked, this,
             &CapturePanel::stopRequested);
-    for (QDoubleSpinBox *box : {m_frequency, m_sampleRate, m_bandwidth,
-                                m_captureRange})
+    for (QDoubleSpinBox *box : {m_frequency, m_sampleRate, m_captureRange})
         connect(box, &QDoubleSpinBox::valueChanged, this,
                 &CapturePanel::paramsChanged);
     connect(m_peakThreshold, &QDoubleSpinBox::valueChanged, this,
@@ -161,7 +152,7 @@ StreamParams CapturePanel::streamParams() const
     StreamParams p;
     p.frequencyHz = m_frequency->value() * 1e6;
     p.sampleRateHz = m_sampleRate->value() * 1e6;
-    p.bandwidthHz = m_bandwidth->value() * 1e6;
+    p.bandwidthHz = 0.0; // auto: let the SDR pick a bandwidth for the rate
     p.gainDb = m_gain->value();
     return p;
 }
