@@ -5,6 +5,7 @@
 #include <QBoxLayout>
 #include <QDoubleSpinBox>
 #include <QEvent>
+#include <QFocusEvent>
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -168,7 +169,15 @@ bool NumpadOverlay::eventFilter(QObject *obj, QEvent *event)
 {
     switch (event->type()) {
     case QEvent::FocusIn: {
-        if (QAbstractSpinBox *box = resolveTarget(obj)) {
+        // Only pop the pad open when the user actually reaches for a field
+        // (tap, tab or shortcut). Focus a widget gets just because its screen
+        // was shown or the window (re)activated must not open the pad — that is
+        // what made the pad appear by default on a program's first entry.
+        const auto reason = static_cast<QFocusEvent *>(event)->reason();
+        const bool userDriven =
+            reason == Qt::MouseFocusReason || reason == Qt::TabFocusReason ||
+            reason == Qt::BacktabFocusReason || reason == Qt::ShortcutFocusReason;
+        if (QAbstractSpinBox *box = userDriven ? resolveTarget(obj) : nullptr) {
             if (box->isEnabled() && !box->isReadOnly())
                 attachTo(box);
         } else if (isVisible()) {

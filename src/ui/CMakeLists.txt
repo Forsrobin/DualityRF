@@ -69,6 +69,8 @@ add_library(duality_ui STATIC
     programs/SentryProgram.cpp
     programs/RepeaterProgram.h
     programs/RepeaterProgram.cpp
+    programs/IdentifierProgram.h
+    programs/IdentifierProgram.cpp
     programs/DebugProgram.h
     programs/DebugProgram.cpp
     programs/InfoProgram.h

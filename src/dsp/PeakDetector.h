@@ -11,12 +11,14 @@ struct DetectedPeak {
     float powerDb = 0.0f;
 };
 
-// Detects at most one signal per fftshifted spectrum trace: the
-// power-weighted middle of every above-threshold bin, so a fragmented or
-// modulated transmission yields a single marker at its center. Detections
-// persist until reset() (i.e. until the monitor stage is stopped); a signal
-// at a genuinely new frequency adds a second persistent marker. Each marker
-// is reported exactly once when it first appears (for logging).
+// Detects the signals in an fftshifted spectrum trace: each contiguous run of
+// above-threshold bins (short sub-threshold dips bridged, so a modulated
+// transmission is not split) is reported at its power-weighted center. Two
+// concurrent in-band signals therefore yield two markers rather than a phantom
+// centroid between them. Detections persist until reset() (i.e. until the
+// monitor stage is stopped); a signal at a genuinely new frequency adds another
+// persistent marker. Each marker is reported exactly once when it first appears
+// (for logging), strongest first.
 class PeakDetector {
 public:
     void setAxis(double centerHz, double spanHz);

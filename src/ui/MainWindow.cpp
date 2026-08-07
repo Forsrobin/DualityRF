@@ -25,6 +25,7 @@
 #include "ui/programs/BeaconProgram.h"
 #include "ui/programs/SentryProgram.h"
 #include "ui/programs/RepeaterProgram.h"
+#include "ui/programs/IdentifierProgram.h"
 #include "ui/programs/LookingProgram.h"
 #include "ui/programs/SessionsProgram.h"
 
@@ -59,6 +60,7 @@ MainWindow::MainWindow()
     : m_capture(&m_spectrumProcessor), m_jamMonitor(&m_jamProcessor),
       m_beaconMonitor(&m_beaconProcessor),
       m_sentryMonitor(&m_sentryProcessor),
+      m_identifierMonitor(&m_identifierProcessor),
       m_repeaterPipeline(&m_repeaterProcessor) {
   setWindowTitle(QStringLiteral("DUALITY RF"));
 
@@ -174,6 +176,12 @@ MainWindow::MainWindow()
       tr("REPEATER"), QStringLiteral(":/assets/repeater.png"), m_repeaterProgram);
   repeaterScreen->setInfo(tr("REPEATER"), RepeaterProgram::infoText());
   m_repeaterScreen = repeaterScreen;
+  m_identifierProgram = new IdentifierProgram(this);
+  ProgramScreen *identifierScreen = addProgram(
+      tr("IDENTIFIER"), QStringLiteral(":/assets/identifier.png"),
+      m_identifierProgram);
+  identifierScreen->setInfo(tr("IDENTIFIER"), IdentifierProgram::infoText());
+  m_identifierScreen = identifierScreen;
   m_debugScreen = addProgram(tr("DEBUG"), QStringLiteral(":/assets/bug.png"),
                              m_debugProgram);
   addProgram(tr("ABOUT"), QStringLiteral(":/assets/info.png"), m_infoProgram);
@@ -203,6 +211,9 @@ MainWindow::MainWindow()
     // Same for the Repeater: stop the relay if it leaves the screen.
     if (m_repeaterActive && m_stack->currentWidget() != m_repeaterScreen)
       stopRepeater();
+    // Same for the Identifier: stop scanning if it leaves the screen.
+    if (m_identifierScanning && m_stack->currentWidget() != m_identifierScreen)
+      stopIdentifier();
   });
 
   // Boot splash lives in the stack too; show it first, then reveal the home
@@ -529,6 +540,29 @@ MainWindow::MainWindow()
   connect(&m_repeaterPipeline, &RepeaterPipeline::errorOccurred, this,
           [this](const QString &msg) { statusBar()->showMessage(msg); });
 
+  // Standalone Identifier program (RX monitor + one-shot peak find). The
+  // detection row drives the search; RESET re-arms without a device restart.
+  connect(m_identifierProgram, &IdentifierProgram::startRequested, this,
+          &MainWindow::startIdentifier);
+  connect(m_identifierProgram, &IdentifierProgram::stopRequested, this,
+          &MainWindow::stopIdentifier);
+  connect(m_identifierProgram, &IdentifierProgram::resetRequested, this, [this] {
+    if (!m_identifierScanning)
+      return;
+    m_identifierPeakDetector.reset();
+    m_identifierFound = false;
+    m_identifierPhase = IdentifyPhase::WaitSignal;
+    m_identifierMaxHold.clear();
+    m_identifierProgram->setRunning(true); // back to the searching view
+    statusBar()->showMessage(tr("Identifier rescanning…"));
+  });
+  // detectionRowReady is the pre-averaging envelope, so a signal is caught on
+  // its real onset instead of the smoothed trace's slow attack.
+  connect(&m_identifierProcessor, &SpectrumProcessor::detectionRowReady, this,
+          &MainWindow::onIdentifierSpectrum);
+  connect(&m_identifierMonitor, &CapturePipeline::errorOccurred, this,
+          [this](const QString &msg) { statusBar()->showMessage(msg); });
+
   m_deviceManager.rescan();
   updateCaptureRangeOverlay();
 }
@@ -538,6 +572,7 @@ MainWindow::~MainWindow() {
   m_jamMonitor.stop();
   m_beaconMonitor.stop();
   m_sentryMonitor.stop();
+  m_identifierMonitor.stop();
   m_repeaterPipeline.stop();
   m_transmit.stop();
   m_playback.stop();
@@ -1134,6 +1169,121 @@ void MainWindow::stopRepeater() {
   statusBar()->showMessage(tr("Repeater stopped"));
 }
 
+void MainWindow::startIdentifier() {
+  const auto rxInfo = m_devicesProgram->selectedRx();
+  if (!rxInfo) {
+    statusBar()->showMessage(tr("Select a receiver first"));
+    m_identifierProgram->setRunning(false);
+    return;
+  }
+  auto rxDevice = m_deviceManager.open(*rxInfo);
+  if (!rxDevice) {
+    statusBar()->showMessage(tr("Cannot open %1").arg(rxInfo->displayName()));
+    m_identifierProgram->setRunning(false);
+    return;
+  }
+
+  m_identifierParams = m_identifierProgram->streamParams();
+  CapturePipeline::Plan plan;
+  plan.params = m_identifierParams; // monitor only (no output path)
+  if (!m_identifierMonitor.start(std::move(rxDevice), plan)) {
+    m_identifierProgram->setRunning(false);
+    return;
+  }
+
+  m_identifierThresholdDb = m_identifierProgram->thresholdDb();
+  m_identifierPeakDetector.setAxis(m_identifierParams.frequencyHz,
+                                   m_identifierParams.sampleRateHz);
+  m_identifierPeakDetector.setThresholdDb(m_identifierThresholdDb);
+  m_identifierPeakDetector.reset();
+  m_identifierScanning = true;
+  m_identifierFound = false;
+  m_identifierPhase = IdentifyPhase::WaitSignal;
+  m_identifierMaxHold.clear();
+  m_identifierProgram->setRunning(true);
+  statusBar()->showMessage(tr("Identifier scanning %1 MHz…")
+                               .arg(m_identifierParams.frequencyHz / 1e6, 0, 'f',
+                                    3));
+}
+
+void MainWindow::stopIdentifier() {
+  m_identifierMonitor.stop();
+  m_identifierPeakDetector.reset();
+  m_identifierScanning = false;
+  m_identifierFound = false;
+  m_identifierPhase = IdentifyPhase::WaitSignal;
+  m_identifierMaxHold.clear();
+  m_identifierProgram->setRunning(false);
+  statusBar()->showMessage(tr("Identifier stopped"));
+}
+
+void MainWindow::onIdentifierSpectrum(const QVector<float> &row) {
+  // Only look while scanning and before a detection has latched; the monitor
+  // keeps running through the "found" screen so RESET can re-arm instantly.
+  if (!m_identifierScanning || m_identifierFound)
+    return;
+
+  // Is anything above the level anywhere in the band this frame? (halfWidth<=0
+  // scans the whole span.) This drives onset/quiet, not the final centre.
+  const bool present = m_identifierPeakDetector.signalPresent(
+      row, m_identifierParams.frequencyHz, 0.0, m_identifierThresholdDb);
+  const auto now = std::chrono::steady_clock::now();
+
+  if (present) {
+    if (m_identifierPhase == IdentifyPhase::WaitSignal) {
+      // Onset: start a new burst envelope from this frame.
+      m_identifierPhase = IdentifyPhase::Collecting;
+      m_identifierMaxHold = row;
+      m_identifierBurstStart = now;
+      statusBar()->showMessage(tr("Identifier: capturing transmission…"));
+    } else {
+      // Max-hold: keep the strongest energy seen at each bin across the whole
+      // transmission, so a weak initial bounce fades under the real burst and
+      // the dominant carrier stands out when we analyse.
+      const int n = std::min(m_identifierMaxHold.size(), row.size());
+      for (int i = 0; i < n; ++i)
+        m_identifierMaxHold[i] = std::max(m_identifierMaxHold[i], row[i]);
+    }
+    m_identifierLastSignal = now;
+    // A very long transmission (e.g. a continuous carrier) still resolves once
+    // it has been held for the ceiling.
+    if (now - m_identifierBurstStart >= kIdentifyMaxBurst)
+      finishIdentifierBurst();
+    return;
+  }
+
+  // Quiet frame: once the channel has stayed quiet past the hang time, the
+  // transmission (and its inter-packet gaps) is over — analyse what we caught.
+  if (m_identifierPhase == IdentifyPhase::Collecting &&
+      now - m_identifierLastSignal >= kIdentifyQuiet)
+    finishIdentifierBurst();
+}
+
+void MainWindow::finishIdentifierBurst() {
+  m_identifierPhase = IdentifyPhase::WaitSignal;
+
+  // Find the strongest, cleanest peak over the whole captured envelope. Running
+  // the detector on the max-hold (not a single frame) means the reported centre
+  // is the transmission's dominant carrier, immune to the momentary bounce.
+  m_identifierPeakDetector.reset();
+  const QVector<DetectedPeak> peaks =
+      m_identifierPeakDetector.update(m_identifierMaxHold);
+  m_identifierMaxHold.clear();
+  m_identifierPeakDetector.reset();
+  if (peaks.isEmpty())
+    return; // nothing held above the level; keep scanning
+
+  const DetectedPeak &p = peaks.front();
+  m_identifierFound = true;
+  m_identifierProgram->showDetection(p.frequencyHz, p.powerDb);
+  const QString entry = tr("Identified %1 MHz (%2 dB)")
+                            .arg(p.frequencyHz / 1e6, 0, 'f', 4)
+                            .arg(p.powerDb, 0, 'f', 1);
+  qInfo().noquote() << QDateTime::currentDateTime().toString(Qt::ISODate)
+                    << entry;
+  statusBar()->showMessage(entry);
+}
+
 void MainWindow::stopCapture() {
   // Clear the auto flag first so a segment finalized during stop is kept
   // but does not re-arm the state machine.
@@ -1248,6 +1398,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
   m_jamMonitor.stop();
   m_beaconMonitor.stop();
   m_sentryMonitor.stop();
+  m_identifierMonitor.stop();
   m_repeaterPipeline.stop();
   m_transmit.stop();
   m_playback.stop();

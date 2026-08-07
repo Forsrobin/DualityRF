@@ -43,6 +43,7 @@ class JamProgram;
 class BeaconProgram;
 class SentryProgram;
 class RepeaterProgram;
+class IdentifierProgram;
 class WaterfallWidget;
 
 // Owns the application services (device manager, session store, pipelines)
@@ -125,6 +126,20 @@ private:
     void startRepeater();
     void stopRepeater();
 
+    // Standalone Identifier program: monitors the selected common band and,
+    // rather than latching the first peak (which catches a key fob's initial
+    // bounce/resonance), captures the whole transmission as a max-hold envelope
+    // and, once the channel goes quiet, reports the strongest peak's centre.
+    // START begins the scan; RESET re-arms; leaving the screen stops it.
+    void startIdentifier();
+    void stopIdentifier();
+    // Evaluate one live detection frame from the identifier monitor: track the
+    // onset/quiet of a transmission and accumulate its max-hold envelope.
+    void onIdentifierSpectrum(const QVector<float> &row);
+    // The channel has gone quiet: analyse the captured envelope and report the
+    // strongest, clearest peak's centre frequency (or re-arm if nothing stuck).
+    void finishIdentifierBurst();
+
     // Auto-capture: continuously records each in-band transmission to its own
     // trimmed file.
     enum class AutoPhase { WaitSignal, Recording, Finalizing };
@@ -146,8 +161,10 @@ private:
     SpectrumProcessor m_beaconProcessor; // live spectrum for the Beacon monitor
     SpectrumProcessor m_sentryProcessor; // detection spectrum for the Sentry
     SpectrumProcessor m_repeaterProcessor; // live spectrum for the Repeater
+    SpectrumProcessor m_identifierProcessor; // detection spectrum for Identifier
     PeakDetector m_peakDetector;
     PeakDetector m_repeaterPeakDetector; // peak markers for the Repeater viz
+    PeakDetector m_identifierPeakDetector; // finds the band's centre frequency
     StreamParams m_activeCaptureParams; // channel of the running capture
     bool m_monitorLive = false;
     bool m_autoActive = false;
@@ -180,6 +197,7 @@ private:
     CapturePipeline m_jamMonitor; // RX monitor feeding the Jam program's viz
     CapturePipeline m_beaconMonitor; // RX monitor feeding the Beacon's viz
     CapturePipeline m_sentryMonitor; // RX monitor driving the Sentry detection
+    CapturePipeline m_identifierMonitor; // RX monitor driving the Identifier
     RepeaterPipeline m_repeaterPipeline; // store-and-forward relay
     PlaybackPipeline m_playback;
     TransmitPipeline m_transmit;
@@ -222,6 +240,23 @@ private:
     QWidget *m_repeaterScreen = nullptr; // back-bar wrapper around the Repeater
     bool m_repeaterActive = false;       // Repeater pipeline is running
     int m_repeaterRepeatCount = 0;
+    IdentifierProgram *m_identifierProgram = nullptr;
+    QWidget *m_identifierScreen = nullptr; // back-bar wrapper around Identifier
+    bool m_identifierScanning = false;     // Identifier monitor is running
+    bool m_identifierFound = false;        // a detection is latched on screen
+    StreamParams m_identifierParams;       // band the identifier monitor scans
+    // Burst capture: wait for a transmission, hold its peak envelope while it is
+    // on air, then analyse once the channel has stayed quiet for the hang time.
+    enum class IdentifyPhase { WaitSignal, Collecting };
+    IdentifyPhase m_identifierPhase = IdentifyPhase::WaitSignal;
+    float m_identifierThresholdDb = -20.0f;   // on/off level, latched at START
+    QVector<float> m_identifierMaxHold;       // per-bin max over the burst
+    std::chrono::steady_clock::time_point m_identifierLastSignal;
+    std::chrono::steady_clock::time_point m_identifierBurstStart;
+    // Quiet long enough to be sure the transmission (and its inter-packet gaps)
+    // is over, and a ceiling so a continuous carrier still resolves.
+    static constexpr auto kIdentifyQuiet = std::chrono::milliseconds(200);
+    static constexpr auto kIdentifyMaxBurst = std::chrono::milliseconds(3000);
     // App-wide device selector; the pipelines read its selection.
     DevicesProgram *m_devicesProgram;
     int m_devicesIndex = -1;        // stack index of the Devicees screen
